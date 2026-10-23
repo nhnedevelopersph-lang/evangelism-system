@@ -11,16 +11,16 @@ import {
   Phone,
   Mail,
   MapPin,
-  Clock,
   Heart,
   ArrowRight,
   ShieldCheck,
   Check,
   Globe,
-  Share2,
   AlertCircle,
   Lock,
-  ChevronRight
+  ChevronRight,
+  XCircle,
+  HelpCircle
 } from 'lucide-react';
 
 interface PublicRegistrationLayoutProps {
@@ -46,6 +46,7 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false);
+  const [isDuplicate, setIsDuplicate] = useState(false);
   const [submittedProspect, setSubmittedProspect] = useState<{
     name: string;
     contact: string;
@@ -58,13 +59,13 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
     let resolvedCode = referralCode;
 
     if (typeof window !== 'undefined') {
-      // Check path: /register/MANILA-NORTH-001
+      // Check path: /register/MEMBER01 or /register/MANILA0008
       const pathname = window.location.pathname;
       const pathMatch = pathname.match(/^\/register\/([^/?#]+)/i);
       if (pathMatch && pathMatch[1]) {
         resolvedCode = decodeURIComponent(pathMatch[1]);
       } else {
-        // Check query: ?ref=MANILA-NORTH-001
+        // Check query: ?ref=MEMBER01 or ?code=MEMBER01
         const params = new URLSearchParams(window.location.search);
         const queryRef = params.get('ref') || params.get('code');
         if (queryRef) {
@@ -86,7 +87,11 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
       return;
     }
 
-    const matched = appStore.getProfileByReferralCode(activeRefCode.trim());
+    const trimmed = activeRefCode.trim();
+    const matched =
+      appStore.getProfileByReferralCode(trimmed) ||
+      appStore.getProfileBySerialNumber(trimmed);
+
     if (matched) {
       setReferrerProfile(matched);
       setCodeStatus('valid');
@@ -100,47 +105,63 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
     e.preventDefault();
     setErrorMessage('');
 
+    // If link is explicitly invalid, do NOT allow registration
+    if (codeStatus === 'invalid') {
+      setErrorMessage('Registration link is invalid or no longer available. Please check the link or request an updated link from your church guide.');
+      return;
+    }
+
+    // Required fields per PDF requirements: Name, Contact Number, Province, City
     if (!name.trim()) {
       setErrorMessage('Please enter your full name.');
       return;
     }
     if (!contactNumber.trim()) {
-      setErrorMessage('Please provide a valid contact number.');
+      setErrorMessage('Please provide a valid contact number (Phone or Viber).');
       return;
     }
     if (!province.trim()) {
       setErrorMessage('Please select your province or region.');
       return;
     }
+    if (!city.trim()) {
+      setErrorMessage('Please enter your city or municipality.');
+      return;
+    }
 
     setIsSubmitting(true);
 
     try {
-      const prospect = appStore.registerPublicProspect({
+      const result = appStore.registerPublicProspect({
         name: name.trim(),
         contact_number: contactNumber.trim(),
         email: email.trim() || undefined,
         gender,
         province: province.trim(),
-        city: city.trim() || undefined,
+        city: city.trim(),
         ref_code: activeRefCode.trim() || undefined,
       });
 
-      // Launch celebratory confetti
-      confetti({
-        particleCount: 110,
-        spread: 80,
-        origin: { y: 0.6 },
-      });
+      if (result.isDuplicate) {
+        setIsDuplicate(true);
+      } else {
+        setIsDuplicate(false);
+        // Launch celebratory confetti for newly registered prospect
+        confetti({
+          particleCount: 110,
+          spread: 80,
+          origin: { y: 0.6 },
+        });
+      }
 
       setSubmittedProspect({
-        name: prospect.name,
-        contact: prospect.contact_number,
-        location: `${prospect.city ? `${prospect.city}, ` : ''}${prospect.province}`,
+        name: result.prospect.name,
+        contact: result.prospect.contact_number,
+        location: `${result.prospect.city ? `${result.prospect.city}, ` : ''}${result.prospect.province}`,
       });
       setIsSuccess(true);
     } catch (err: any) {
-      setErrorMessage(err.message || 'An error occurred while submitting your registration.');
+      setErrorMessage(err.message || 'Registration link is invalid or no longer available.');
     } finally {
       setIsSubmitting(false);
     }
@@ -152,6 +173,7 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
     setEmail('');
     setCity('');
     setIsSuccess(false);
+    setIsDuplicate(false);
     setSubmittedProspect(null);
   };
 
@@ -189,22 +211,22 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
           </p>
         </div>
 
-        {/* Dynamic Referral Attribution Card */}
+        {/* Dynamic Referral Attribution & Validity Banner */}
         <div className="mb-6">
           {codeStatus === 'valid' && referrerProfile && (
-            <div className="bg-white/10 backdrop-blur-md border border-emerald-400/30 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg animate-in fade-in duration-200">
+            <div className="bg-white/10 backdrop-blur-md border border-emerald-400/40 rounded-2xl p-4 flex flex-col sm:flex-row items-center justify-between gap-3 shadow-lg animate-in fade-in duration-200">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-xl bg-emerald-500/20 border border-emerald-400/40 flex items-center justify-center text-emerald-300 flex-shrink-0">
                   <ShieldCheck className="w-6 h-6" />
                 </div>
                 <div className="text-left">
-                  <p className="text-xs text-sky-200 font-medium">Personal Invitation from Church Guide</p>
+                  {/*<p className="text-xs text-sky-200 font-medium">Personal Invitation from Church Guide</p>*/}
                   <p className="text-sm font-bold text-white">
                     Invited by <span className="text-amber-300">{referrerProfile.name}</span>
                   </p>
-                  <p className="text-[11px] text-slate-300">
-                    Area Chapter: <strong className="text-white">{referrerProfile.area}</strong> • Code: <span className="font-mono text-sky-200">{referrerProfile.referral_code}</span>
-                  </p>
+                  {/*<p className="text-[11px] text-slate-300">
+                    Area Chapter: <strong className="text-white">{referrerProfile.area}</strong> • Referral Code: <span className="font-mono text-sky-200 font-bold">{referrerProfile.referral_code || referrerProfile.serial_number}</span>
+                  </p>*/}
                 </div>
               </div>
               <span className="text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 px-3 py-1 rounded-full font-bold flex items-center gap-1">
@@ -215,14 +237,21 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
           )}
 
           {codeStatus === 'invalid' && (
-            <div className="bg-amber-500/10 border border-amber-400/30 rounded-2xl p-4 flex items-start gap-3 text-xs text-amber-200">
-              <AlertCircle className="w-5 h-5 text-amber-400 flex-shrink-0 mt-0.5" />
+            <div className="bg-rose-500/15 border border-rose-400/40 rounded-2xl p-4.5 flex items-start gap-3 text-xs text-rose-200 shadow-lg animate-in fade-in duration-200">
+              <XCircle className="w-6 h-6 text-rose-400 flex-shrink-0 mt-0.5" />
               <div>
-                <p className="font-bold text-amber-300">Referral Code Notice</p>
-                <p className="mt-0.5 text-slate-300">
-                  Code <span className="font-mono font-bold text-white">"{activeRefCode}"</span> was not found in our directory. You can still submit your registration below, and our coordinator will connect you directly.
+                <p className="font-extrabold text-rose-300 text-sm">Registration link is invalid or no longer available.</p>
+                <p className="mt-1 text-slate-300 leading-relaxed">
+                  The referral identifier <span className="font-mono font-bold text-white bg-rose-950/60 px-1.5 py-0.5 rounded border border-rose-800">"{activeRefCode}"</span> was not found in our active member directory.
+                  Please verify the link provided by your church guide or contact them for an updated registration link.
                 </p>
               </div>
+            </div>
+          )}
+
+          {codeStatus === 'none' && (
+            <div className="bg-white/5 border border-white/10 rounded-2xl p-3.5 text-center text-xs text-slate-300">
+              <span className="text-sky-300 font-semibold">General Enrollment Portal:</span> Submit your basic contact details below and our staff will connect you with a dedicated Bible study teacher.
             </div>
           )}
         </div>
@@ -230,22 +259,38 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
         {/* Success / Thank You Screen */}
         {isSuccess ? (
           <div className="bg-white rounded-3xl p-8 sm:p-12 text-slate-900 shadow-2xl border border-slate-100 text-center animate-in fade-in zoom-in-95 duration-200">
-            <div className="w-20 h-20 bg-emerald-100 text-emerald-600 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner">
+            <div className={`w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner ${
+              isDuplicate ? 'bg-blue-100 text-blue-700' : 'bg-emerald-100 text-emerald-600'
+            }`}>
               <CheckCircle2 className="w-12 h-12" />
             </div>
 
-            <span className="text-xs font-extrabold uppercase tracking-widest text-emerald-700 bg-emerald-50 px-3.5 py-1 rounded-full border border-emerald-200 inline-block mb-3">
-              Application Confirmed
+            <span className={`text-xs font-extrabold uppercase tracking-widest px-3.5 py-1 rounded-full border inline-block mb-3 ${
+              isDuplicate
+                ? 'text-blue-800 bg-blue-50 border-blue-200'
+                : 'text-emerald-700 bg-emerald-50 border-emerald-200'
+            }`}>
+              {isDuplicate ? 'Registration Already Received' : 'Application Received'}
             </span>
 
             <h2 className="text-2xl sm:text-3xl font-extrabold text-slate-900 mb-2">
-              Thank you! We'll get in touch.
+              Thank You!
             </h2>
 
             <p className="text-slate-600 max-w-md mx-auto mb-6 text-sm sm:text-base leading-relaxed">
-              We have received your application for the <strong>Zion Christian Mission Center Free Bible Study</strong>.
-              A mission teacher or evangelism counselor will contact you via text or call at{' '}
-              <span className="font-bold text-slate-900">{submittedProspect?.contact}</span> within 24–48 hours.
+              {isDuplicate ? (
+                <>
+                  We already have your registration on file for the <strong>Zion Christian Mission Center Free Bible Study</strong>.
+                  A mission teacher or evangelism counselor will be in touch with you shortly at{' '}
+                  <span className="font-bold text-slate-900">{submittedProspect?.contact}</span>.
+                  Please keep your contact line open.
+                </>
+              ) : (
+                <>
+                  Your registration has been received. We'll get in touch with you.
+                  Please keep your contact line open.
+                </>
+              )}
             </p>
 
             {submittedProspect && (
@@ -254,18 +299,26 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
                   Registration Details
                 </p>
                 <p>
-                  <span className="text-slate-500">Student:</span> <strong>{submittedProspect.name}</strong>
+                  <span className="text-slate-500">Student Name:</span> <strong>{submittedProspect.name}</strong>
                 </p>
                 <p>
-                  <span className="text-slate-500">Contact:</span> <strong>{submittedProspect.contact}</strong>
+                  <span className="text-slate-500">Contact Line:</span> <strong>{submittedProspect.contact}</strong>
                 </p>
                 <p>
                   <span className="text-slate-500">Location:</span> <strong>{submittedProspect.location}</strong>
                 </p>
-                <p>
-                  <span className="text-slate-500">Assigned Guide:</span>{' '}
-                  <strong>{referrerProfile ? `${referrerProfile.name} (${referrerProfile.area})` : 'Direct Registration (Unassigned)'}</strong>
-                </p>
+                {referrerProfile && (
+                  <p>
+                    <span className="text-slate-500">Assigned Guide:</span>{' '}
+                    <strong>{referrerProfile.name} ({referrerProfile.area})</strong>
+                  </p>
+                )}
+                {/*<p>
+                  <span className="text-slate-500">Initial Level:</span>{' '}
+                  <span className="font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded text-[11px]">
+                    Chatgi (New Registered)
+                  </span>
+                </p>*/}
               </div>
             )}
 
@@ -292,8 +345,8 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
             </div>
 
             {errorMessage && (
-              <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs sm:text-sm font-medium flex items-center gap-2">
-                <AlertCircle className="w-4 h-4 flex-shrink-0" />
+              <div className="mb-6 p-4 rounded-xl bg-rose-50 border border-rose-200 text-rose-700 text-xs sm:text-sm font-medium flex items-start gap-2.5">
+                <AlertCircle className="w-5 h-5 flex-shrink-0 text-rose-600 mt-0.5" />
                 <span>{errorMessage}</span>
               </div>
             )}
@@ -314,7 +367,8 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
                     value={name}
                     onChange={(e) => setName(e.target.value)}
                     placeholder="e.g. Maria Santos"
-                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
+                    disabled={codeStatus === 'invalid'}
+                    className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all disabled:opacity-50 disabled:bg-slate-100"
                   />
                 </div>
               </div>
@@ -335,7 +389,8 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
                       value={contactNumber}
                       onChange={(e) => setContactNumber(e.target.value)}
                       placeholder="+63 9XX XXX XXXX"
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
+                      disabled={codeStatus === 'invalid'}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all disabled:opacity-50 disabled:bg-slate-100"
                     />
                   </div>
                 </div>
@@ -353,7 +408,8 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
                       value={email}
                       onChange={(e) => setEmail(e.target.value)}
                       placeholder="you@example.com"
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
+                      disabled={codeStatus === 'invalid'}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all disabled:opacity-50 disabled:bg-slate-100"
                     />
                   </div>
                 </div>
@@ -362,12 +418,13 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
               {/* Gender */}
               <div>
                 <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                  Gender
+                  Gender <span className="text-slate-400 font-normal">(Optional)</span>
                 </label>
                 <select
                   value={gender}
                   onChange={(e) => setGender(e.target.value as any)}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
+                  disabled={codeStatus === 'invalid'}
+                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all disabled:opacity-50 disabled:bg-slate-100"
                 >
                   <option value="Male">Male</option>
                   <option value="Female">Female</option>
@@ -390,7 +447,8 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
                       required
                       value={province}
                       onChange={(e) => setProvince(e.target.value)}
-                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
+                      disabled={codeStatus === 'invalid'}
+                      className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all disabled:opacity-50 disabled:bg-slate-100"
                     >
                       {PROVINCES_LIST.map((prov) => (
                         <option key={prov} value={prov}>
@@ -403,14 +461,16 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
 
                 <div>
                   <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                    City / Municipality
+                    City / Municipality <span className="text-rose-500">*</span>
                   </label>
                   <input
                     type="text"
+                    required
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
                     placeholder="e.g. Quezon City, Cebu City, Bacoor"
-                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
+                    disabled={codeStatus === 'invalid'}
+                    className="w-full px-4 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-slate-900 text-sm focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all disabled:opacity-50 disabled:bg-slate-100"
                   />
                 </div>
               </div>
@@ -419,11 +479,13 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
               <div className="pt-3">
                 <button
                   type="submit"
-                  disabled={isSubmitting}
-                  className="w-full py-3.5 px-6 bg-gradient-to-r from-blue-700 to-sky-600 hover:from-blue-800 hover:to-sky-700 text-white font-bold rounded-2xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 text-base disabled:opacity-50"
+                  disabled={isSubmitting || codeStatus === 'invalid'}
+                  className="w-full py-3.5 px-6 bg-gradient-to-r from-blue-700 to-sky-600 hover:from-blue-800 hover:to-sky-700 text-white font-bold rounded-2xl shadow-lg hover:shadow-xl transition-all flex items-center justify-center gap-2 text-base disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isSubmitting ? (
                     'Submitting Application...'
+                  ) : codeStatus === 'invalid' ? (
+                    'Registration Link Unavailable'
                   ) : (
                     <>
                       <span>Submit Free Registration</span>
@@ -471,13 +533,13 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
               Zion Christian Mission Center
             </p>
             <p className="text-[11px] text-slate-500">
-              Free Bible Study • Evangelism & Student Education
+              Free Bible Study • Student Education
             </p>
           </div>
 
           <div className="flex items-center gap-4 text-[11px]">
             <span>Privacy Confidentiality Guaranteed</span>
-            {onOpenPortalLogin && (
+            {/*{onOpenPortalLogin && (
               <button
                 onClick={onOpenPortalLogin}
                 className="text-slate-400 hover:text-sky-300 flex items-center gap-1 transition-colors"
@@ -485,7 +547,7 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
                 <Lock className="w-3 h-3" />
                 <span>Worker Login</span>
               </button>
-            )}
+            )}*/}
           </div>
         </div>
       </footer>

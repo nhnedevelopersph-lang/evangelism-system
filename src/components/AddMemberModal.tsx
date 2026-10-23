@@ -28,43 +28,29 @@ const ALL_ROLES: UserRole[] = [
 
 export const AddMemberModal: React.FC<AddMemberModalProps> = ({ isOpen, onClose, onSuccess }) => {
   const [serialNumber, setSerialNumber] = useState('');
-  const [referralCode, setReferralCode] = useState('');
   const [name, setName] = useState('');
-  const [department, setDepartment] = useState('Evangelism Dept');
-  const [area, setArea] = useState('Area 1');
-  const [region, setRegion] = useState('NCR & Luzon');
-  const [duty, setDuty] = useState('Evangelism Worker');
-  const [section, setSection] = useState('Section Alpha');
-  const [teamLeader, setTeamLeader] = useState('Leader Timothy');
-  const [ban, setBan] = useState('Ban 1');
-  const [selectedRoles, setSelectedRoles] = useState<UserRole[]>(['Member']);
+  const [department, setDepartment] = useState('');
+  const [area, setArea] = useState('');
+  const [region, setRegion] = useState('');
+  const [duty, setDuty] = useState('');
+  const [section, setSection] = useState('');
+  const [teamLeader, setTeamLeader] = useState('');
+  const [ban, setBan] = useState('');
+  const [selectedRoles, setSelectedRoles] = useState<UserRole[]>([]);
   const [error, setError] = useState('');
-
-  // Auto-suggest code when area changes if not manually set
-  React.useEffect(() => {
-    if (area) {
-      const existing = appStore.getAllReferralCodes();
-      const code = generateNextAreaReferralCode(area, existing);
-      setReferralCode(code);
-      if (!serialNumber) {
-        setSerialNumber(`SN-${code}`);
-      }
-    }
-  }, [area]);
+  const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
 
   const handleToggleRole = (role: UserRole) => {
     if (selectedRoles.includes(role)) {
-      if (selectedRoles.length > 1) {
-        setSelectedRoles(selectedRoles.filter((r) => r !== role));
-      }
+      setSelectedRoles(selectedRoles.filter((r) => r !== role));
     } else {
       setSelectedRoles([...selectedRoles, role]);
     }
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
@@ -73,35 +59,47 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({ isOpen, onClose,
       return;
     }
     if (!name.trim()) {
-      setError('Member name is required.');
+      setError('Full name is required.');
+      return;
+    }
+    if (selectedRoles.length === 0) {
+      setError('Access Based on Role is required (select at least 1 role).');
       return;
     }
 
     const existing = appStore.getProfileBySerialNumber(serialNumber.trim());
     if (existing) {
-      setError(`Serial number "${serialNumber.trim()}" is already assigned to ${existing.name}.`);
+      setError('An account with this Serial Number already exists.');
       return;
     }
 
-    const finalRefCode = referralCode.trim() || generateNextAreaReferralCode(area, appStore.getAllReferralCodes());
+    setLoading(true);
+    try {
+      const result = await appStore.registerLeaderOrMemberAccount({
+        serial_number: serialNumber.trim().toUpperCase(),
+        name: name.trim(),
+        department: department.trim(),
+        area: area.trim(),
+        region: region.trim(),
+        duty: duty.trim(),
+        section: section.trim(),
+        team_leader: teamLeader.trim(),
+        ban: ban.trim(),
+        role: selectedRoles,
+      });
 
-    appStore.addNewProfile({
-      serial_number: serialNumber.trim().toUpperCase(),
-      referral_code: finalRefCode.toUpperCase(),
-      name: name.trim(),
-      department: department.trim(),
-      area: area.trim(),
-      region: region.trim(),
-      duty: duty.trim(),
-      section: section.trim(),
-      team_leader: teamLeader.trim(),
-      ban: ban.trim(),
-      role: selectedRoles,
-      must_change_password: true, // Requires changing password on first login
-    });
+      if (!result.success) {
+        setError(result.error || 'Failed to create account.');
+        return;
+      }
 
-    onSuccess();
-    onClose();
+      onSuccess();
+      onClose();
+    } catch (err: any) {
+      setError(err.message || 'An error occurred while creating account.');
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
@@ -295,9 +293,10 @@ export const AddMemberModal: React.FC<AddMemberModalProps> = ({ isOpen, onClose,
             </button>
             <button
               type="submit"
-              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md text-xs sm:text-sm transition-colors"
+              disabled={loading}
+              className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl shadow-md text-xs sm:text-sm transition-colors disabled:opacity-50"
             >
-              Create Account
+              {loading ? 'Creating...' : 'Create Account'}
             </button>
           </div>
         </form>

@@ -6,7 +6,10 @@ import {
   Lock,
   ArrowRight,
   AlertCircle,
-  X
+  X,
+  Eye,
+  EyeOff,
+  Sparkles
 } from 'lucide-react';
 
 interface LoginModalProps {
@@ -16,36 +19,36 @@ interface LoginModalProps {
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSuccess }) => {
-  const [serialNumber, setSerialNumber] = useState('');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
   if (!isOpen) return null;
 
-  const handleLogin = (e: React.FormEvent) => {
+  const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
 
-    if (!serialNumber.trim()) {
-      setError('Please enter your Serial Number.');
-      return;
-    }
-
-    if (!password) {
-      setError('Please enter your password.');
+    if (!username.trim() || !password) {
+      setError('Invalid username or password.');
       return;
     }
 
     setLoading(true);
-    const res = appStore.loginWithSerialNumber(serialNumber.trim(), password);
-    setLoading(false);
-
-    if (res.success && res.user) {
-      onSuccess(res.user);
-      onClose();
-    } else {
-      setError(res.message || 'Login failed. Check your Serial Number or password.');
+    try {
+      const res = await appStore.login(username.trim(), password);
+      if (res.success && res.user) {
+        onSuccess(res.user);
+        onClose();
+      } else {
+        setError(res.message || 'Invalid username or password.');
+      }
+    } catch (_) {
+      setError('Invalid username or password.');
+    } finally {
+      setLoading(false);
     }
   };
 
@@ -62,18 +65,18 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
 
         {/* Top Logo & Title */}
         <div className="text-center mb-6">
-          <div className="w-16 h-16 mx-auto mb-3">
+          <div className="w-16 h-16 mx-auto mb-3 bg-white rounded-full p-1 shadow-md ring-2 ring-blue-100">
             <img
               src="/assets/aistudio/Zion_Christian_Mission_Center_-_Logo_ab51933b.png"
               alt="Zion Christian Mission Center"
-              className="w-full h-full object-contain rounded-full shadow-md"
+              className="w-full h-full object-contain rounded-full"
             />
           </div>
           <h3 className="text-2xl font-black text-slate-900 tracking-tight">
-            Admin Log-in
+            Member Portal Login
           </h3>
           <p className="text-xs text-slate-500 mt-1">
-            Sign in with your assigned Serial Number
+            Sign in with your username and password
           </p>
         </div>
 
@@ -87,7 +90,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
         <form onSubmit={handleLogin} className="space-y-4">
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-              Serial Number
+              Username
             </label>
             <div className="relative">
               <div className="absolute inset-y-0 left-0 pl-3.5 flex items-center pointer-events-none text-slate-400">
@@ -96,10 +99,11 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
               <input
                 type="text"
                 required
-                value={serialNumber}
-                onChange={(e) => setSerialNumber(e.target.value.trim())}
-                placeholder="Enter Serial Number"
-                className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-mono text-slate-900 focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
+                autoComplete="off"
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Enter username"
+                className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm font-medium text-slate-900 focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
               />
             </div>
           </div>
@@ -113,13 +117,21 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
                 <Lock className="w-4 h-4" />
               </div>
               <input
-                type="password"
+                type={showPassword ? 'text' : 'password'}
                 required
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
-                placeholder="Enter Password"
-                className="w-full pl-10 pr-3 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
+                placeholder="Enter password"
+                className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-300 rounded-xl text-sm text-slate-900 focus:bg-white focus:border-blue-600 focus:ring-2 focus:ring-blue-100 transition-all"
               />
+              <button
+                type="button"
+                onClick={() => setShowPassword(!showPassword)}
+                className="absolute inset-y-0 right-0 pr-3.5 flex items-center text-slate-400 hover:text-slate-600 transition-colors"
+                title={showPassword ? 'Hide password' : 'Show password'}
+              >
+                {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
             </div>
           </div>
 
@@ -134,9 +146,15 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
         </form>
 
         <div className="mt-5 text-center">
-          <p className="text-[11px] text-slate-400">
-            Initial imported worker accounts use the designated temporary password and must set a personal password upon first entry.
-          </p>
+          <div className="bg-slate-50 border border-slate-200 rounded-2xl p-2.5 text-left text-xs">
+            <p className="font-bold text-slate-700 flex items-center gap-1 text-[11px] mb-0.5">
+              <Sparkles className="w-3 h-3 text-amber-500" />
+              Testing Credentials
+            </p>
+            <p className="text-[11px] text-slate-500">
+              Username: <strong className="text-blue-700 font-mono">useradmin</strong> • Password: <strong className="text-blue-700 font-mono">useradmin43</strong>
+            </p>
+          </div>
         </div>
       </div>
     </div>

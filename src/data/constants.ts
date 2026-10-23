@@ -70,6 +70,7 @@ export const PROVINCES_LIST: string[] = [
 export const SEED_PROFILES: Profile[] = [
   {
     id: 'u-super-admin-00361228',
+    username: 'useradmin',
     serial_number: '00361228-01771',
     referral_code: 'HQ0001',
     name: 'Super Admin Overseer',
@@ -81,13 +82,14 @@ export const SEED_PROFILES: Profile[] = [
     team_leader: 'General Assembly',
     ban: 'HQ Central',
     role: ['Super Admin', 'Admin'],
-    must_change_password: true, // Will test mandatory password reset on default123 login!
+    must_change_password: false,
     phone: '+63 917 111 0000',
     email: 'superadmin.00361228@zionmission.org',
     created_at: '2026-01-01T00:00:00Z',
   },
   {
     id: 'u-super-01',
+    username: 'peter.kim',
     serial_number: 'SUPER-001',
     referral_code: 'HQ0002',
     name: 'Brother Peter Kim',
@@ -106,6 +108,7 @@ export const SEED_PROFILES: Profile[] = [
   },
   {
     id: 'u-reg-01',
+    username: 'hannah.morales',
     serial_number: 'REG-201',
     referral_code: 'LUZON0001',
     name: 'Sister Hannah Morales',
@@ -124,6 +127,7 @@ export const SEED_PROFILES: Profile[] = [
   },
   {
     id: 'u-area-01',
+    username: 'david.park',
     serial_number: 'AL-301',
     referral_code: 'MANILA0001',
     name: 'Leader David Park',
@@ -142,6 +146,7 @@ export const SEED_PROFILES: Profile[] = [
   },
   {
     id: 'u-areasomu-01',
+    username: 'grace.tan',
     serial_number: 'AS-302',
     referral_code: 'MANILA0002',
     name: 'Sister Grace Tan',
@@ -160,6 +165,7 @@ export const SEED_PROFILES: Profile[] = [
   },
   {
     id: 'u-gwajang-01',
+    username: 'mark.santos',
     serial_number: 'GW-303',
     referral_code: 'MANILA0003',
     name: 'Brother Mark Santos',
@@ -178,6 +184,7 @@ export const SEED_PROFILES: Profile[] = [
   },
   {
     id: 'u-banjang-01',
+    username: 'samuel.cruz',
     serial_number: 'BJ-401',
     referral_code: 'MANILA0004',
     name: 'Brother Samuel Cruz',
@@ -196,6 +203,7 @@ export const SEED_PROFILES: Profile[] = [
   },
   {
     id: 'u-bbgyogwan-01',
+    username: 'esther.lim',
     serial_number: 'BBG-601',
     referral_code: 'MANILA0005',
     name: 'Instructor Esther Lim',
@@ -214,6 +222,7 @@ export const SEED_PROFILES: Profile[] = [
   },
   {
     id: 'u-depttjn-01',
+    username: 'joshua.reyes',
     serial_number: 'TJN-701',
     referral_code: 'MANILA0006',
     name: 'Brother Joshua Reyes',
@@ -232,6 +241,7 @@ export const SEED_PROFILES: Profile[] = [
   },
   {
     id: 'u-sec-01',
+    username: 'maria.fernandez',
     serial_number: 'SEC-801',
     referral_code: 'MANILA0007',
     name: 'Sister Maria Fernandez',
@@ -250,6 +260,7 @@ export const SEED_PROFILES: Profile[] = [
   },
   {
     id: 'u-mem-01',
+    username: 'juan.delacruz',
     serial_number: 'MEM-901',
     referral_code: 'MANILA0008',
     name: 'Brother Juan Dela Cruz',
@@ -268,6 +279,7 @@ export const SEED_PROFILES: Profile[] = [
   },
   {
     id: 'u-mem-02',
+    username: 'leah.santos',
     serial_number: 'MEM-902',
     referral_code: 'MANILA0009',
     name: 'Sister Leah Joy Santos',
@@ -286,6 +298,7 @@ export const SEED_PROFILES: Profile[] = [
   },
   {
     id: 'u-mem-03',
+    username: 'caleb.rivera',
     serial_number: 'MEM-903',
     referral_code: 'CEBU0001',
     name: 'Brother Caleb Rivera',

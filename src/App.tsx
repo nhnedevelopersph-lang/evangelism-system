@@ -22,10 +22,12 @@ import { ProfileModal } from './components/ProfileModal';
 import { AddMemberModal } from './components/AddMemberModal';
 import { CsvMemberImportModal } from './components/CsvMemberImportModal';
 import { MembersListView } from './components/MembersListView';
+import { LoginPage } from './components/LoginPage';
+import { RegisterAccountView } from './components/RegisterAccountView';
 
 export default function App() {
   const [currentUser, setCurrentUser] = useState<Profile | null>(appStore.getCurrentUser());
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'prospects' | 'register' | 'members'>('dashboard');
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'prospects' | 'register' | 'members' | 'login' | 'register-account'>('register');
   const [initialRegistrationRef, setInitialRegistrationRef] = useState<string>('');
   const [prospectsLevelFilter, setProspectsLevelFilter] = useState<string>('ALL');
 
@@ -54,16 +56,42 @@ export default function App() {
     return unsubscribe;
   }, []);
 
-  // Detect URL path or query parameters (e.g. /register/MANILA-NORTH-001 or ?ref=...)
+  // Detect URL path or query parameters (e.g. /register/MEMBER01 or ?ref=...)
   useEffect(() => {
     if (typeof window !== 'undefined') {
       const pathname = window.location.pathname;
-      const pathMatch = pathname.match(/^\/register\/([^/?#]+)/i);
-      const isRegisterPath = pathname === '/register' || pathname.startsWith('/register/');
+      const isRootPath = pathname === '/' || pathname === '';
 
       const params = new URLSearchParams(window.location.search);
       const ref = params.get('ref') || params.get('code');
       const tab = params.get('tab');
+
+      // Priority 1: Redirect to /register route if / or homepage is accessed
+      if (isRootPath) {
+        if (window.history && window.history.replaceState) {
+          window.history.replaceState(null, '', '/register');
+        }
+        setActiveTab('register');
+        return;
+      }
+
+      // Priority 2: Internal Account Registration (/register-account) - Must not conflict with /register/:code
+      const isAccountRegPath = pathname === '/register-account' || pathname.startsWith('/register-account');
+      if (isAccountRegPath || tab === 'register-account') {
+        if (!appStore.getCurrentUser()) {
+          if (window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', '/login');
+          }
+          setActiveTab('login');
+        } else {
+          setActiveTab('register-account');
+        }
+        return;
+      }
+
+      // Priority 3: Public Prospect Registration (/register or /register/:referralCode)
+      const pathMatch = pathname.match(/^\/register\/([^/?#]+)$/i);
+      const isRegisterPath = pathname === '/register';
 
       if (pathMatch && pathMatch[1]) {
         setInitialRegistrationRef(decodeURIComponent(pathMatch[1]));
@@ -73,8 +101,39 @@ export default function App() {
         setActiveTab('register');
       } else if (isRegisterPath || tab === 'register') {
         setActiveTab('register');
-      } else if (tab === 'prospects') {
-        setActiveTab('prospects');
+      } else if (pathname === '/login' || tab === 'login') {
+        if (appStore.getCurrentUser()) {
+          setActiveTab('dashboard');
+        } else {
+          setActiveTab('login');
+        }
+      } else if (pathname === '/prospects' || tab === 'prospects') {
+        if (!appStore.getCurrentUser()) {
+          if (window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', '/login');
+          }
+          setActiveTab('login');
+        } else {
+          setActiveTab('prospects');
+        }
+      } else if (pathname === '/members' || tab === 'members') {
+        if (!appStore.getCurrentUser()) {
+          if (window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', '/login');
+          }
+          setActiveTab('login');
+        } else {
+          setActiveTab('members');
+        }
+      } else if (pathname === '/dashboard' || tab === 'dashboard') {
+        if (!appStore.getCurrentUser()) {
+          if (window.history && window.history.replaceState) {
+            window.history.replaceState(null, '', '/login');
+          }
+          setActiveTab('login');
+        } else {
+          setActiveTab('dashboard');
+        }
       }
     }
   }, []);
@@ -107,23 +166,13 @@ export default function App() {
             if (currentUser) {
               setActiveTab('dashboard');
             } else {
-              setShowLoginModal(true);
+              if (typeof window !== 'undefined' && window.history?.pushState) {
+                window.history.pushState(null, '', '/login');
+              }
+              setActiveTab('login');
             }
           }}
         />
-
-        {/* Floating Quick Return to Internal Dashboard for Logged-In Workers */}
-        {currentUser && (
-          <div className="fixed bottom-4 right-4 z-50 animate-in fade-in duration-200">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className="px-4 py-2 bg-slate-900/90 hover:bg-slate-950 text-white font-bold text-xs rounded-full border border-slate-700 shadow-2xl backdrop-blur-md flex items-center gap-2 transition-all hover:scale-105"
-            >
-              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
-              <span>Worker Dashboard ({currentUser.serial_number})</span>
-            </button>
-          </div>
-        )}
 
         {/* Login Modal for Leaders clicking Worker Login on Public Page */}
         <LoginModal
@@ -136,6 +185,29 @@ export default function App() {
           }}
         />
       </>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
+  // TIER 1.5: STANDALONE AUTHENTICATION PAGE (Manual Username & Password)
+  // ---------------------------------------------------------------------------
+  if (activeTab === 'login') {
+    return (
+      <LoginPage
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          setActiveTab('dashboard');
+          if (typeof window !== 'undefined' && window.history?.pushState) {
+            window.history.pushState(null, '', '/dashboard');
+          }
+        }}
+        onNavigateToRegister={() => {
+          setActiveTab('register');
+          if (typeof window !== 'undefined' && window.history?.pushState) {
+            window.history.pushState(null, '', '/register');
+          }
+        }}
+      />
     );
   }
 
@@ -175,15 +247,20 @@ export default function App() {
                   className="w-full h-full object-contain rounded-full shadow-md"
                 />
               </div>
-              <h2 className="text-xl font-bold text-slate-900 mb-2">Member Portal Authentication</h2>
+              <h2 className="text-xl font-bold text-slate-900 mb-2">Worker Authentication Required</h2>
               <p className="text-xs text-slate-500 mb-6">
-                Please sign in with your Serial Number or Referral Code to view your evangelism pipeline results.
+                Please enter your username and password to access the evangelism pipeline and student records.
               </p>
               <button
-                onClick={() => setShowLoginModal(true)}
+                onClick={() => {
+                  if (typeof window !== 'undefined' && window.history?.pushState) {
+                    window.history.pushState(null, '', '/login');
+                  }
+                  setActiveTab('login');
+                }}
                 className="w-full py-3 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl text-sm shadow-md transition-colors"
               >
-                Sign In with Serial Number
+                Sign In with Username & Password
               </button>
             </div>
           )
@@ -204,13 +281,18 @@ export default function App() {
             <div className="p-12 text-center bg-white rounded-3xl border border-slate-200 max-w-md mx-auto my-12">
               <h2 className="text-xl font-bold text-slate-900 mb-2">Sign In Required</h2>
               <p className="text-xs text-slate-500 mb-6">
-                Sign in to manage prospective students and BB lessons.
+                Sign in with your username and password to manage prospective students and BB lessons.
               </p>
               <button
-                onClick={() => setShowLoginModal(true)}
+                onClick={() => {
+                  if (typeof window !== 'undefined' && window.history?.pushState) {
+                    window.history.pushState(null, '', '/login');
+                  }
+                  setActiveTab('login');
+                }}
                 className="w-full py-3 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl text-sm"
               >
-                Sign In with Serial Number
+                Sign In with Username & Password
               </button>
             </div>
           )
@@ -227,16 +309,34 @@ export default function App() {
             <div className="p-12 text-center bg-white rounded-3xl border border-slate-200 max-w-md mx-auto my-12">
               <h2 className="text-xl font-bold text-slate-900 mb-2">Sign In Required</h2>
               <p className="text-xs text-slate-500 mb-6">
-                Sign in to view the members and workers directory.
+                Sign in with your username and password to view the members and workers directory.
               </p>
               <button
-                onClick={() => setShowLoginModal(true)}
+                onClick={() => {
+                  if (typeof window !== 'undefined' && window.history?.pushState) {
+                    window.history.pushState(null, '', '/login');
+                  }
+                  setActiveTab('login');
+                }}
                 className="w-full py-3 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl text-sm"
               >
-                Sign In with Serial Number
+                Sign In with Username & Password
               </button>
             </div>
           )
+        )}
+
+        {activeTab === 'register-account' && (
+          <RegisterAccountView
+            currentUser={currentUser}
+            onNavigateToTab={(tab) => {
+              if (typeof window !== 'undefined' && window.history?.pushState) {
+                window.history.pushState(null, '', `/${tab === 'dashboard' ? 'dashboard' : tab}`);
+              }
+              setActiveTab(tab);
+            }}
+            onAccountCreated={() => setTick((t) => t + 1)}
+          />
         )}
       </main>
 

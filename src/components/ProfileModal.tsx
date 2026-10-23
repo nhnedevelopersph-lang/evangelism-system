@@ -1,7 +1,21 @@
 import React, { useState } from 'react';
 import { Profile } from '../types';
 import { appStore } from '../services/store';
-import { UserCheck, Shield, KeyRound, Lock, RotateCcw, X, CheckCircle2, AlertCircle } from 'lucide-react';
+import {
+  UserCheck,
+  Shield,
+  KeyRound,
+  Lock,
+  RotateCcw,
+  X,
+  CheckCircle2,
+  AlertCircle,
+  Copy,
+  Check,
+  ExternalLink,
+  Share2,
+  Link as LinkIcon
+} from 'lucide-react';
 
 interface ProfileModalProps {
   user: Profile;
@@ -14,10 +28,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
   const [confirmPassword, setConfirmPassword] = useState('');
   const [pwSuccess, setPwSuccess] = useState(false);
   const [pwError, setPwError] = useState('');
+  const [copiedLink, setCopiedLink] = useState(false);
+  const [shareSuccess, setShareSuccess] = useState(false);
 
   if (!isOpen) return null;
 
-  const handlePasswordChange = (e: React.FormEvent) => {
+  const handlePasswordChange = async (e: React.FormEvent) => {
     e.preventDefault();
     setPwError('');
     setPwSuccess(false);
@@ -31,14 +47,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
       return;
     }
 
-    const ok = appStore.updatePassword(user.id, newPassword);
-    if (ok) {
+    const res = await appStore.updatePassword(user.id, newPassword);
+    if (res.success) {
       setPwSuccess(true);
       setNewPassword('');
       setConfirmPassword('');
       setTimeout(() => setPwSuccess(false), 3000);
     } else {
-      setPwError('Failed to update password.');
+      setPwError(res.message || 'Failed to update password.');
     }
   };
 
@@ -77,6 +93,85 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
 
         {/* Body */}
         <div className="overflow-y-auto py-4 space-y-5 flex-grow pr-1 custom-scrollbar">
+          {/* Member Unique Registration Link */}
+          <div className="bg-gradient-to-br from-blue-50 to-sky-50 border border-blue-200 rounded-2xl p-4 text-xs space-y-2.5">
+            <div className="flex items-center justify-between">
+              <h4 className="font-extrabold text-blue-950 text-sm flex items-center gap-1.5">
+                <LinkIcon className="w-4 h-4 text-blue-700" />
+                My Registration Link
+              </h4>
+              <span className="font-mono text-[11px] font-bold text-blue-800 bg-blue-100/80 px-2 py-0.5 rounded border border-blue-300">
+                Code: {user.referral_code || user.serial_number}
+              </span>
+            </div>
+            <p className="text-[11px] text-slate-600">
+              Share your personal link with prospective students. Any prospect who registers through this link will be automatically attributed to you for follow-up and study coordination.
+            </p>
+
+            {/* Link Box */}
+            <div className="flex items-center gap-2 bg-white border border-blue-200 rounded-xl p-1.5 shadow-xs">
+              <input
+                type="text"
+                readOnly
+                value={`${typeof window !== 'undefined' ? window.location.origin : 'https://zionchristianmissioncenter.org'}/register/${user.referral_code || user.serial_number}`}
+                className="w-full bg-transparent px-2 text-xs font-mono text-slate-700 outline-none select-all"
+              />
+            </div>
+
+            {/* Action Buttons: Copy Link, Open Link, Share */}
+            <div className="flex items-center gap-2 pt-1 flex-wrap">
+              <button
+                type="button"
+                onClick={() => {
+                  const link = `${typeof window !== 'undefined' ? window.location.origin : 'https://zionchristianmissioncenter.org'}/register/${user.referral_code || user.serial_number}`;
+                  if (navigator.clipboard) {
+                    navigator.clipboard.writeText(link);
+                    setCopiedLink(true);
+                    setTimeout(() => setCopiedLink(false), 2000);
+                  }
+                }}
+                className="flex-1 min-w-[100px] py-2 px-3 bg-blue-700 hover:bg-blue-800 text-white font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 transition-colors shadow-xs"
+              >
+                {copiedLink ? <Check className="w-3.5 h-3.5 text-emerald-300" /> : <Copy className="w-3.5 h-3.5" />}
+                <span>{copiedLink ? 'Copied!' : 'Copy Link'}</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const link = `${typeof window !== 'undefined' ? window.location.origin : 'https://zionchristianmissioncenter.org'}/register/${user.referral_code || user.serial_number}`;
+                  window.open(link, '_blank');
+                }}
+                className="py-2 px-3 bg-white hover:bg-slate-50 text-slate-700 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 border border-slate-300 transition-colors"
+              >
+                <ExternalLink className="w-3.5 h-3.5 text-slate-500" />
+                <span>Open Link</span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const link = `${typeof window !== 'undefined' ? window.location.origin : 'https://zionchristianmissioncenter.org'}/register/${user.referral_code || user.serial_number}`;
+                  if (navigator.share) {
+                    navigator.share({
+                      title: 'Zion Christian Mission Center - Free Bible Study',
+                      text: `Hello! Discover the mysteries and fulfilled covenants of the Holy Scriptures. Register with Zion Christian Mission Center here:`,
+                      url: link,
+                    }).catch(() => {});
+                  } else if (navigator.clipboard) {
+                    navigator.clipboard.writeText(link);
+                    setShareSuccess(true);
+                    setTimeout(() => setShareSuccess(false), 2000);
+                  }
+                }}
+                className="py-2 px-3 bg-sky-100 hover:bg-sky-200 text-sky-900 font-bold rounded-xl text-xs flex items-center justify-center gap-1.5 border border-sky-200 transition-colors"
+              >
+                <Share2 className="w-3.5 h-3.5 text-sky-700" />
+                <span>{shareSuccess ? 'Link Copied!' : 'Share'}</span>
+              </button>
+            </div>
+          </div>
+
           {/* Member Details Card */}
           <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 text-xs space-y-2.5">
             <div className="flex justify-between items-center border-b border-slate-200 pb-2">

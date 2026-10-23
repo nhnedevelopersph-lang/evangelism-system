@@ -9,8 +9,12 @@ import {
   FollowUpLog,
   MemberImportBatch,
   CsvMemberRow,
+  AUTHORIZED_REGISTRATION_ROLES,
+  ALL_APPROVED_ROLES,
+  AccountCsvRow,
 } from '../types';
 import { SEED_PROFILES, SEED_PROSPECTS, SEED_BB_LESSONS } from '../data/constants';
+import { generateNextAreaReferralCode } from '../utils/areaCodeGenerator';
 import {
   supabase,
   IS_SUPABASE_CONFIGURED,
@@ -19,6 +23,11 @@ import {
   subscribeToMembersRealtime
 } from './supabase';
 
+export function isAuthorizedToManageAccounts(user: Profile | null): boolean {
+  if (!user || !user.role || !Array.isArray(user.role)) return false;
+  return user.role.some((r) => AUTHORIZED_REGISTRATION_ROLES.includes(r));
+}
+
 const STORAGE_KEYS = {
   CURRENT_USER: 'zcmc_current_user_v2',
   PROFILES: 'zcmc_profiles_v2',
@@ -26,7 +35,35 @@ const STORAGE_KEYS = {
   BB_LESSONS: 'zcmc_lessons_v2',
   FOLLOW_UPS: 'zcmc_follow_ups_v2',
   MEMBER_IMPORTS: 'zcmc_member_imports_v2',
+  CREDENTIALS: 'zcmc_auth_credentials_v2',
 };
+
+export interface UserCredential {
+  username: string;
+  passwordHash: string;
+  profileId: string;
+}
+
+export async function hashPassword(password: string): Promise<string> {
+  const enc = new TextEncoder();
+  const data = enc.encode(`zcmc_secure_auth_v2:${password}`);
+  if (typeof crypto !== 'undefined' && crypto.subtle) {
+    try {
+      const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+      return Array.from(new Uint8Array(hashBuffer))
+        .map((b) => b.toString(16).padStart(2, '0'))
+        .join('');
+    } catch (_) {
+      // Fallback below
+    }
+  }
+  let hash = 0;
+  for (let i = 0; i < password.length; i++) {
+    hash = (hash << 5) - hash + password.charCodeAt(i);
+    hash |= 0;
+  }
+  return `h_${Math.abs(hash)}`;
+}
 
 // Safe localStorage helper
 const getStored = <T>(key: string, defaultValue: T): T => {
@@ -57,6 +94,7 @@ export class Store {
   private bbLessons: BBLesson[] = [];
   private followUps: FollowUpLog[] = [];
   private memberImports: MemberImportBatch[] = [];
+  private credentials: Record<string, UserCredential> = {};
   private currentUser: Profile | null = null;
   private listeners: Array<() => void> = [];
 
@@ -77,6 +115,10 @@ export class Store {
     this.bbLessons = getStored<BBLesson[]>(STORAGE_KEYS.BB_LESSONS, SEED_BB_LESSONS);
     this.followUps = getStored<FollowUpLog[]>(STORAGE_KEYS.FOLLOW_UPS, []);
     this.memberImports = getStored<MemberImportBatch[]>(STORAGE_KEYS.MEMBER_IMPORTS, []);
+    this.credentials = getStored<Record<string, UserCredential>>(STORAGE_KEYS.CREDENTIALS, {});
+
+    // Seed default credentials (including developer testing credentials: useradmin / useradmin43)
+    this.seedCredentials();
 
     // Set initial user if none
     const savedUser = getStored<Profile | null>(STORAGE_KEYS.CURRENT_USER, null);
@@ -84,8 +126,7 @@ export class Store {
       const live = this.profiles.find((p) => p.id === savedUser.id);
       this.currentUser = live || savedUser;
     } else {
-      this.currentUser = this.profiles[0];
-      setStored(STORAGE_KEYS.CURRENT_USER, this.currentUser);
+      this.currentUser = null;
     }
 
     // Connect to Supabase & Realtime if configured
@@ -108,6 +149,51 @@ export class Store {
           }
         }
       );
+    }
+  }
+
+  public async seedCredentials(): Promise<void> {
+    let changed = false;
+
+    // Developer testing credentials: username useradmin, password useradmin43
+    if (!this.credentials['useradmin']) {
+      this.credentials['useradmin'] = {
+        username: 'useradmin',
+        passwordHash: await hashPassword('useradmin43'),
+        profileId: 'u-super-admin-00361228',
+      };
+      changed = true;
+    }
+
+    const seedMap: Record<string, { pass: string; id: string }> = {
+      'admin': { pass: 'admin123', id: 'u-super-01' },
+      'peter.kim': { pass: 'default123', id: 'u-super-01' },
+      'hannah.morales': { pass: 'default123', id: 'u-reg-01' },
+      'david.park': { pass: 'default123', id: 'u-area-01' },
+      'grace.tan': { pass: 'default123', id: 'u-areasomu-01' },
+      'mark.santos': { pass: 'default123', id: 'u-gwajang-01' },
+      'samuel.cruz': { pass: 'default123', id: 'u-banjang-01' },
+      'esther.lim': { pass: 'default123', id: 'u-bbgyogwan-01' },
+      'joshua.reyes': { pass: 'default123', id: 'u-depttjn-01' },
+      'maria.fernandez': { pass: 'default123', id: 'u-sec-01' },
+      'juan.delacruz': { pass: 'default123', id: 'u-mem-01' },
+      'leah.santos': { pass: 'default123', id: 'u-mem-02' },
+      'caleb.rivera': { pass: 'default123', id: 'u-mem-03' },
+    };
+
+    for (const [uname, info] of Object.entries(seedMap)) {
+      if (!this.credentials[uname]) {
+        this.credentials[uname] = {
+          username: uname,
+          passwordHash: await hashPassword(info.pass),
+          profileId: info.id,
+        };
+        changed = true;
+      }
+    }
+
+    if (changed) {
+      setStored(STORAGE_KEYS.CREDENTIALS, this.credentials);
     }
   }
 
@@ -150,6 +236,7 @@ export class Store {
     setStored(STORAGE_KEYS.BB_LESSONS, this.bbLessons);
     setStored(STORAGE_KEYS.FOLLOW_UPS, this.followUps);
     setStored(STORAGE_KEYS.MEMBER_IMPORTS, this.memberImports);
+    setStored(STORAGE_KEYS.CREDENTIALS, this.credentials);
     if (this.currentUser) {
       setStored(STORAGE_KEYS.CURRENT_USER, this.currentUser);
     }
@@ -221,50 +308,383 @@ export class Store {
     return this.profiles.find((p) => p.id === id);
   }
 
-  public loginWithSerialNumber(
-    serialNumber: string,
+  /**
+   * Explicit credential-based authentication.
+   * Requires user to manually enter both username and password.
+   * Never infers or pre-fills username from serial_number or referral_code.
+   * Validates strictly against stored credential hashes.
+   */
+  public async login(
+    usernameAttempt: string,
     passwordAttempt: string
-  ): { success: boolean; message?: string; user?: Profile } {
-    // Allows logging in with Serial Number or Referral Code
-    const profile =
-      this.getProfileBySerialNumber(serialNumber) || this.getProfileByReferralCode(serialNumber);
+  ): Promise<{ success: boolean; message?: string; user?: Profile }> {
+    const cleanUsername = (usernameAttempt || '').trim().toLowerCase();
+    const cleanPassword = passwordAttempt || '';
 
-    if (!profile) {
-      return { success: false, message: 'Invalid Serial Number or Referral Code.' };
+    if (!cleanUsername || !cleanPassword) {
+      return { success: false, message: 'Invalid username or password.' };
     }
 
-    if (profile.must_change_password) {
-      if (passwordAttempt !== 'default123') {
-        return { success: false, message: 'First login requires default password: "default123".' };
-      }
+    // Explicitly validate username against credentials store
+    let cred = this.credentials[cleanUsername];
+    if (!cred) {
+      await this.seedCredentials();
+      cred = this.credentials[cleanUsername];
+    }
+
+    if (!cred) {
+      return { success: false, message: 'Invalid username or password.' };
+    }
+
+    const attemptHash = await hashPassword(cleanPassword);
+    if (attemptHash !== cred.passwordHash) {
+      return { success: false, message: 'Invalid username or password.' };
+    }
+
+    // Authenticated -> load corresponding Profile
+    const profile = this.profiles.find((p) => p.id === cred.profileId);
+    if (!profile) {
+      return { success: false, message: 'Invalid username or password.' };
     }
 
     this.setCurrentUser(profile);
     return { success: true, user: profile };
   }
 
-  public updatePassword(userId: string, newPassword: string): boolean {
+  public loginWithCredentials = this.login.bind(this);
+
+  public logout(): void {
+    this.currentUser = null;
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(STORAGE_KEYS.CURRENT_USER);
+    }
+    this.notify();
+  }
+
+  public async updatePassword(
+    userId: string,
+    newPassword: string,
+    currentPasswordAttempt?: string
+  ): Promise<{ success: boolean; message?: string }> {
     const index = this.profiles.findIndex((p) => p.id === userId);
-    if (index === -1) return false;
+    if (index === -1) {
+      return { success: false, message: 'User profile not found.' };
+    }
+
+    // Find credential for this user
+    let userCredKey: string | undefined;
+    for (const uname in this.credentials) {
+      if (this.credentials[uname].profileId === userId) {
+        userCredKey = uname;
+        break;
+      }
+    }
+
+    if (currentPasswordAttempt && userCredKey) {
+      const currentHash = await hashPassword(currentPasswordAttempt);
+      if (this.credentials[userCredKey].passwordHash !== currentHash) {
+        return { success: false, message: 'Current password is incorrect.' };
+      }
+    }
+
+    const newHash = await hashPassword(newPassword);
+    if (userCredKey) {
+      this.credentials[userCredKey].passwordHash = newHash;
+    } else {
+      const profile = this.profiles[index];
+      const uname = (profile.username || `user_${profile.serial_number}`).toLowerCase();
+      this.credentials[uname] = {
+        username: uname,
+        passwordHash: newHash,
+        profileId: userId,
+      };
+    }
 
     this.profiles[index] = {
       ...this.profiles[index],
       must_change_password: false,
     };
+
     if (this.currentUser && this.currentUser.id === userId) {
       this.currentUser = this.profiles[index];
     }
+
     this.notify();
-    return true;
+    return { success: true };
+  }
+
+  public canManageAccounts(user?: Profile | null): boolean {
+    return isAuthorizedToManageAccounts(user !== undefined ? user : this.currentUser);
+  }
+
+  /**
+   * Internal Account Registration
+   * - Restricted to Super Admin, Admin, Regional Leader, Area Leader, Area Somu
+   * - Serial Number is the generated username
+   * - Default password: 'default43' (hashed via hashPassword)
+   * - must_change_password = true
+   * - Validates Serial Number uniqueness (no duplicates)
+   * - Validates at least 1 role
+   */
+  public async registerLeaderOrMemberAccount(
+    data: {
+      serial_number: string;
+      name: string;
+      department?: string;
+      area?: string;
+      region?: string;
+      duty?: string;
+      section?: string;
+      ban?: string;
+      team_leader?: string;
+      role: UserRole[];
+    },
+    actor?: Profile | null
+  ): Promise<{ success: boolean; profile?: Profile; error?: string }> {
+    const actingUser = actor !== undefined ? actor : this.currentUser;
+    if (!this.canManageAccounts(actingUser)) {
+      return {
+        success: false,
+        error: 'Unauthorized: Only Super Admin, Admin, Regional Leader, Area Leader, and Area Somu may register accounts.',
+      };
+    }
+
+    const cleanSerial = (data.serial_number || '').trim();
+    if (!cleanSerial) {
+      return { success: false, error: 'Serial Number is required.' };
+    }
+
+    const cleanName = (data.name || '').trim();
+    if (!cleanName) {
+      return { success: false, error: 'Full Name is required.' };
+    }
+
+    if (!data.role || !Array.isArray(data.role) || data.role.length === 0) {
+      return { success: false, error: 'Access Based on Role is required (at least 1 role).' };
+    }
+
+    // Validate Serial Number uniqueness
+    const lowerSerial = cleanSerial.toLowerCase();
+    const existing = this.profiles.find(
+      (p) => p.serial_number.toLowerCase().trim() === lowerSerial
+    );
+    if (existing) {
+      return {
+        success: false,
+        error: 'An account with this Serial Number already exists.',
+      };
+    }
+
+    const existingCodes = this.getAllReferralCodes();
+    const area = (data.area || '').trim() || 'Manila';
+    const generatedRefCode = generateNextAreaReferralCode(area, existingCodes);
+
+    const newProfile: Profile = {
+      id: `u-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+      username: cleanSerial,
+      serial_number: cleanSerial,
+      referral_code: generatedRefCode,
+      name: cleanName,
+      department: (data.department || '').trim(),
+      area,
+      region: (data.region || '').trim(),
+      duty: (data.duty || '').trim(),
+      section: (data.section || '').trim(),
+      ban: (data.ban || '').trim(),
+      team_leader: (data.team_leader || '').trim(),
+      role: [...data.role],
+      must_change_password: true,
+      created_at: new Date().toISOString(),
+    };
+
+    // Generate credentials with username = Serial Number and password = default43
+    const cleanUsername = cleanSerial.toLowerCase();
+    const passwordHash = await hashPassword('default43');
+    this.credentials[cleanUsername] = {
+      username: cleanUsername,
+      passwordHash,
+      profileId: newProfile.id,
+    };
+    setStored(STORAGE_KEYS.CREDENTIALS, this.credentials);
+
+    this.profiles.unshift(newProfile);
+    setStored(STORAGE_KEYS.PROFILES, this.profiles);
+
+    if (IS_SUPABASE_CONFIGURED) {
+      upsertMembersToSupabase([newProfile]).catch((err) =>
+        console.error('Failed to sync new member account to Supabase:', err)
+      );
+    }
+
+    this.notify();
+    return { success: true, profile: newProfile };
+  }
+
+  /**
+   * Bulk Account Registration & Updating through CSV
+   * - Restricted to authorized roles
+   * - New accounts: username = Serial Number, default password = 'default43', must_change_password = true
+   * - Existing accounts: update member/profile info and roles; do NOT reset password or must_change_password!
+   */
+  public async bulkImportAccountsAsync(
+    rows: AccountCsvRow[],
+    actor?: Profile | null
+  ): Promise<{
+    success: boolean;
+    insertedCount: number;
+    updatedCount: number;
+    failedCount: number;
+    summary: string;
+    error?: string;
+  }> {
+    const actingUser = actor !== undefined ? actor : this.currentUser;
+    if (!this.canManageAccounts(actingUser)) {
+      return {
+        success: false,
+        insertedCount: 0,
+        updatedCount: 0,
+        failedCount: rows.length,
+        summary: 'Unauthorized',
+        error: 'Unauthorized: Only Super Admin, Admin, Regional Leader, Area Leader, and Area Somu may perform bulk import.',
+      };
+    }
+
+    let insertedCount = 0;
+    let updatedCount = 0;
+    let failedCount = 0;
+    const profilesToUpsert: Profile[] = [];
+    const defaultPasswordHash = await hashPassword('default43');
+
+    for (const row of rows) {
+      if (row.status === 'error' || !row.serialNumber || !row.fullName || row.roles.length === 0) {
+        failedCount++;
+        continue;
+      }
+
+      const lowerSerial = row.serialNumber.trim().toLowerCase();
+      const existingIndex = this.profiles.findIndex(
+        (p) => p.serial_number.toLowerCase().trim() === lowerSerial
+      );
+
+      if (existingIndex !== -1) {
+        // UPDATE existing account
+        const existing = this.profiles[existingIndex];
+        const updatedProfile: Profile = {
+          ...existing,
+          name: row.fullName.trim(),
+          department: row.department.trim() || existing.department,
+          area: row.area.trim() || existing.area,
+          region: row.region.trim() || existing.region,
+          duty: row.duty.trim() || existing.duty,
+          section: row.section.trim() || existing.section,
+          ban: row.ban.trim() || existing.ban,
+          team_leader: row.teamLeader.trim() || existing.team_leader,
+          role: [...row.roles],
+          // CRITICAL: Do NOT reset password, password hash, or must_change_password for existing accounts!
+        };
+        this.profiles[existingIndex] = updatedProfile;
+        profilesToUpsert.push(updatedProfile);
+        updatedCount++;
+      } else {
+        // CREATE NEW account
+        const existingCodes = this.getAllReferralCodes();
+        const area = row.area.trim() || 'Manila';
+        const generatedRefCode = generateNextAreaReferralCode(area, existingCodes);
+
+        const newProfile: Profile = {
+          id: `u-${Date.now()}-${Math.random().toString(36).substr(2, 6)}`,
+          username: row.serialNumber.trim(),
+          serial_number: row.serialNumber.trim(),
+          referral_code: generatedRefCode,
+          name: row.fullName.trim(),
+          department: row.department.trim(),
+          area,
+          region: row.region.trim(),
+          duty: row.duty.trim(),
+          section: row.section.trim(),
+          ban: row.ban.trim(),
+          team_leader: row.teamLeader.trim(),
+          role: [...row.roles],
+          must_change_password: true,
+          created_at: new Date().toISOString(),
+        };
+
+        // Create credential with username = Serial Number, password = default43
+        this.credentials[lowerSerial] = {
+          username: lowerSerial,
+          passwordHash: defaultPasswordHash,
+          profileId: newProfile.id,
+        };
+
+        this.profiles.unshift(newProfile);
+        profilesToUpsert.push(newProfile);
+        insertedCount++;
+      }
+    }
+
+    setStored(STORAGE_KEYS.PROFILES, this.profiles);
+    setStored(STORAGE_KEYS.CREDENTIALS, this.credentials);
+
+    // Record import batch history
+    const batchRecord: MemberImportBatch = {
+      id: `batch-${Date.now()}`,
+      filename: `Bulk Account Import (${new Date().toLocaleDateString()})`,
+      imported_count: insertedCount + updatedCount,
+      imported_by_id: actingUser?.id || 'admin',
+      imported_by_name: actingUser?.name || 'Administrator',
+      area_summary: {},
+      created_at: new Date().toISOString(),
+    };
+    this.memberImports.unshift(batchRecord);
+    setStored(STORAGE_KEYS.MEMBER_IMPORTS, this.memberImports);
+
+    if (IS_SUPABASE_CONFIGURED && profilesToUpsert.length > 0) {
+      upsertMembersToSupabase(profilesToUpsert).catch((err) =>
+        console.error('Supabase bulk upsert error:', err)
+      );
+    }
+
+    this.notify();
+
+    return {
+      success: true,
+      insertedCount,
+      updatedCount,
+      failedCount,
+      summary: `Processed: ${insertedCount} new accounts created, ${updatedCount} existing accounts updated, ${failedCount} errors.`,
+    };
   }
 
   public addNewProfile(profileData: Omit<Profile, 'id' | 'created_at'>): Profile {
+    const cleanSerial = (profileData.serial_number || '').trim();
+    const existing = this.profiles.find(
+      (p) => p.serial_number.toLowerCase().trim() === cleanSerial.toLowerCase()
+    );
+    if (existing) {
+      throw new Error('An account with this Serial Number already exists.');
+    }
+
     const newProfile: Profile = {
       ...profileData,
       id: `u-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      username: profileData.username || cleanSerial,
+      must_change_password: true,
       created_at: new Date().toISOString(),
     };
     this.profiles.unshift(newProfile);
+
+    // Register initial credential with clean username and default43
+    const uname = (newProfile.username || cleanSerial).toLowerCase().trim();
+    hashPassword('default43').then((hash) => {
+      this.credentials[uname] = {
+        username: uname,
+        passwordHash: hash,
+        profileId: newProfile.id,
+      };
+      setStored(STORAGE_KEYS.CREDENTIALS, this.credentials);
+    });
+
+    setStored(STORAGE_KEYS.PROFILES, this.profiles);
     this.notify();
     return newProfile;
   }
@@ -667,16 +1087,38 @@ export class Store {
     email?: string;
     gender?: 'Male' | 'Female' | 'Other' | 'Prefer not to say';
     province: string;
-    city?: string;
+    city: string;
     ref_code?: string;
-  }): Prospect {
-    // Resolve referral code or serial number to actual Profile record
+  }): { prospect: Prospect; isDuplicate: boolean } {
     let referrer: Profile | undefined;
     let remarks: string | undefined;
 
+    const trimmedCode = data.ref_code?.trim();
+    if (trimmedCode) {
+      referrer =
+        this.getProfileByReferralCode(trimmedCode) ||
+        this.getProfileBySerialNumber(trimmedCode);
+      if (!referrer) {
+        throw new Error('Registration link is invalid or no longer available.');
+      }
+      remarks = `Referred by ${referrer.name} (${referrer.referral_code || referrer.serial_number})`;
+    }
+
+    // Duplicate Detection: Validate by normalized contact phone number
+    const normalizedInputPhone = data.contact_number.replace(/\D/g, '');
+    const existing = this.prospects.find((p) => {
+      const pPhone = p.contact_number.replace(/\D/g, '');
+      return pPhone.length >= 7 && pPhone === normalizedInputPhone;
+    });
+
+    if (existing) {
+      // Preserve original record and referral attribution without modification
+      return { prospect: existing, isDuplicate: true };
+    }
+
     // If valid referral code provided, attribute to member; otherwise set to null (Unassigned / Direct Registration)
     const finalReferrerId = referrer ? referrer.id : null;
-    const finalRemarks = remarks || (referrer ? undefined : 'Direct Registration (Unassigned)');
+    const finalRemarks = remarks || 'Direct Registration (Unassigned)';
 
     const newProspect: Prospect = {
       id: `p-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
@@ -686,7 +1128,7 @@ export class Store {
       email: data.email?.trim() || undefined,
       gender: data.gender,
       province: data.province.trim(),
-      city: data.city?.trim() || undefined,
+      city: data.city.trim(),
       referred_by_member_id: finalReferrerId,
       prospect_level: 'Chatgi',
       meeting_remarks: finalRemarks,
@@ -712,7 +1154,7 @@ export class Store {
       });
     }
 
-    return newProspect;
+    return { prospect: newProspect, isDuplicate: false };
   }
 
   /**

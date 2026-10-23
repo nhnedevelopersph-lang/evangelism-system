@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Profile, CsvMemberRow } from '../types';
 import { appStore } from '../services/store';
-import { parseMemberCsv, SAMPLE_MEMBER_CSV } from '../utils/areaCodeGenerator';
+import { parseMemberCsv, SAMPLE_MEMBER_CSV, generateAccountCsvTemplate } from '../utils/areaCodeGenerator';
 import {
   FileSpreadsheet,
   Upload,
@@ -39,6 +39,7 @@ export const CsvMemberImportModal: React.FC<CsvMemberImportModalProps> = ({
   const [importSuccessMessage, setImportSuccessMessage] = useState('');
 
   if (!isOpen) return null;
+  if (!appStore.canManageAccounts(currentUser)) return null;
 
   const existingCodes = appStore.getAllReferralCodes();
   const pastBatches = appStore.getMemberImports();
@@ -74,8 +75,8 @@ export const CsvMemberImportModal: React.FC<CsvMemberImportModalProps> = ({
   };
 
   const handleDownloadTemplate = () => {
-    const headerOnly = `Serial,Name,Department,Section,Area,Region,Ban,Duty,Role\n00361228-09991,Brother Example,Evangelism Dept,Section Alpha,Manila,NCR & Luzon,Ban 1,Evangelism Worker,Member`;
-    const blob = new Blob([headerOnly], { type: 'text/csv' });
+    const csvContent = generateAccountCsvTemplate();
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;

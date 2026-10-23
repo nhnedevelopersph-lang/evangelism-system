@@ -27,6 +27,7 @@ export type ProgramType = 'Onsite' | 'Online' | 'SPS';
 
 export interface Profile {
   id: string;
+  username?: string;
   serial_number: string;
   referral_code: string; // Area-based unique referral code (e.g. MANILA-NORTH-001, CEBU-SOUTH-042)
   name: string;
@@ -123,4 +124,45 @@ export interface CsvMemberRow {
   serial_number?: string;
   isValid: boolean;
   errorMessage?: string;
+}
+
+export const AUTHORIZED_REGISTRATION_ROLES: UserRole[] = [
+  'Super Admin',
+  'Admin',
+  'Regional Leader',
+  'Area Leader',
+  'Area Somu',
+];
+
+export const ALL_APPROVED_ROLES: UserRole[] = [
+  'Super Admin',
+  'Admin',
+  'Regional Leader',
+  'Area Leader',
+  'Area Somu',
+  'Gwajang',
+  'Somu',
+  'Banjang',
+  'Jeondo Gyo-gwan',
+  'BB Gyo-gwan',
+  'Department TJN',
+  'Section Leader',
+  'Member',
+];
+
+export interface AccountCsvRow {
+  rowNumber: number;
+  serialNumber: string;
+  fullName: string;
+  department: string;
+  area: string;
+  region: string;
+  duty: string;
+  section: string;
+  ban: string;
+  teamLeader: string;
+  roles: UserRole[];
+  status: 'new' | 'update' | 'error';
+  errorMessage?: string;
+  existingProfile?: Profile;
 }

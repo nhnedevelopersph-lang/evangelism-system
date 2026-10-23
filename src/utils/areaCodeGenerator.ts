@@ -1,4 +1,4 @@
-import { CsvMemberRow, UserRole } from '../types';
+import { CsvMemberRow, UserRole, AccountCsvRow, ALL_APPROVED_ROLES, Profile } from '../types';
 
 /**
  * Normalizes an area name into a clean uppercase alphanumeric slug for referral codes.
@@ -195,3 +195,191 @@ export const SAMPLE_MEMBER_CSV = `Serial,Name,Department,Section,Area,Region,Ban
 2026-CEB-002,Sister Deborah Lim,Education Dept,BB Department,Cebu,Visayas,Ban 2,BB Teacher,BB Gyo-gwan
 2026-DAV-001,Brother Matthew Villanueva,Evangelism Dept,Section Gamma,Davao,Mindanao,Ban 3,Section Leader,Section Leader
 2026-CAV-001,Sister Priscilla Aquino,Evangelism Dept,Section Delta,Cavite,Luzon,Ban 1,Evangelism Worker,Member`;
+
+/**
+ * Account Registration CSV Columns per Section 15:
+ * Serial Number, Full Name, Department, Area, Region, Duty, Section, Ban, Team Leader, Access Based on Role
+ */
+export const ACCOUNT_REGISTRATION_HEADERS = [
+  'Serial Number',
+  'Full Name',
+  'Department',
+  'Area',
+  'Region',
+  'Duty',
+  'Section',
+  'Ban',
+  'Team Leader',
+  'Access Based on Role',
+];
+
+export function generateAccountCsvTemplate(): string {
+  const headers = ACCOUNT_REGISTRATION_HEADERS.join(',');
+  const exampleRow = 'SN-2026-001,Brother Timothy Santos,Evangelism Dept,Manila,NCR & Luzon,Evangelism Worker,Section Alpha,Ban 1,Leader Timothy,Member';
+  const exampleRow2 = 'SN-2026-002,Sister Deborah Lim,Education Dept,Cebu,Visayas,BB Teacher,Section Beta,Ban 2,Leader Deborah,Regional Leader|Area Leader';
+  return `${headers}\n${exampleRow}\n${exampleRow2}\n`;
+}
+
+export function parseAccountRegistrationCsv(
+  csvContent: string,
+  existingProfiles: Profile[]
+): {
+  rows: AccountCsvRow[];
+  newCount: number;
+  updateCount: number;
+  errorCount: number;
+  errors: string[];
+} {
+  const lines = csvContent
+    .split(/\r?\n/)
+    .map((l) => l.trim())
+    .filter((l) => l.length > 0);
+
+  if (lines.length < 2) {
+    return {
+      rows: [],
+      newCount: 0,
+      updateCount: 0,
+      errorCount: 1,
+      errors: ['The CSV file is empty or missing a header row.'],
+    };
+  }
+
+  const rawHeaders = parseCsvLine(lines[0]);
+  const headers = rawHeaders.map((h) => h.toLowerCase().trim());
+
+  const colIndex = {
+    serial: findColIndex(headers, ['serial number', 'serial', 'serial_number', 'sn']),
+    name: findColIndex(headers, ['full name', 'name', 'member name', 'fullname']),
+    department: findColIndex(headers, ['department', 'dept']),
+    area: findColIndex(headers, ['area', 'chapter', 'location']),
+    region: findColIndex(headers, ['region', 'province']),
+    duty: findColIndex(headers, ['duty', 'title', 'position']),
+    section: findColIndex(headers, ['section', 'sec']),
+    ban: findColIndex(headers, ['ban', 'ban name', 'team']),
+    teamLeader: findColIndex(headers, ['team leader', 'team_leader', 'leader']),
+    role: findColIndex(headers, ['access based on role', 'role', 'roles', 'access', 'role access']),
+  };
+
+  const rows: AccountCsvRow[] = [];
+  const errors: string[] = [];
+  const seenSerials = new Set<string>();
+
+  let newCount = 0;
+  let updateCount = 0;
+  let errorCount = 0;
+
+  for (let i = 1; i < lines.length; i++) {
+    const rawLine = lines[i];
+    if (!rawLine.trim()) continue;
+
+    const rowNum = i + 1;
+    const values = parseCsvLine(rawLine);
+
+    const serialNumber = colIndex.serial !== -1 && values[colIndex.serial] ? values[colIndex.serial].trim() : '';
+    const fullName = colIndex.name !== -1 && values[colIndex.name] ? values[colIndex.name].trim() : '';
+    const department = colIndex.department !== -1 && values[colIndex.department] ? values[colIndex.department].trim() : '';
+    const area = colIndex.area !== -1 && values[colIndex.area] ? values[colIndex.area].trim() : '';
+    const region = colIndex.region !== -1 && values[colIndex.region] ? values[colIndex.region].trim() : '';
+    const duty = colIndex.duty !== -1 && values[colIndex.duty] ? values[colIndex.duty].trim() : '';
+    const section = colIndex.section !== -1 && values[colIndex.section] ? values[colIndex.section].trim() : '';
+    const ban = colIndex.ban !== -1 && values[colIndex.ban] ? values[colIndex.ban].trim() : '';
+    const teamLeader = colIndex.teamLeader !== -1 && values[colIndex.teamLeader] ? values[colIndex.teamLeader].trim() : '';
+    const rawRoles = colIndex.role !== -1 && values[colIndex.role] ? values[colIndex.role].trim() : '';
+
+    const rowErrors: string[] = [];
+
+    // Validation 1: Serial Number required
+    if (!serialNumber) {
+      rowErrors.push('Serial Number is required.');
+    } else {
+      const lowerSn = serialNumber.toLowerCase();
+      // Validation 2: Duplicate Serial Number within uploaded CSV
+      if (seenSerials.has(lowerSn)) {
+        rowErrors.push(`Duplicate Serial Number "${serialNumber}" within uploaded CSV.`);
+      } else {
+        seenSerials.add(lowerSn);
+      }
+    }
+
+    // Validation 3: Full Name required
+    if (!fullName) {
+      rowErrors.push('Full Name is required.');
+    }
+
+    // Validation 4: Access Based on Role required & valid
+    const parsedRoles: UserRole[] = [];
+    if (!rawRoles) {
+      rowErrors.push('Access Based on Role is required.');
+    } else {
+      // Split by pipe '|' or comma ','
+      const splitRoles = rawRoles
+        .split(/[|,]/)
+        .map((r) => r.trim())
+        .filter((r) => r.length > 0);
+
+      if (splitRoles.length === 0) {
+        rowErrors.push('Access Based on Role is required.');
+      } else {
+        for (const roleCandidate of splitRoles) {
+          const matchedRole = ALL_APPROVED_ROLES.find(
+            (ar) => ar.toLowerCase() === roleCandidate.toLowerCase()
+          );
+          if (matchedRole) {
+            if (!parsedRoles.includes(matchedRole)) {
+              parsedRoles.push(matchedRole);
+            }
+          } else {
+            rowErrors.push(`Invalid role "${roleCandidate}". Must be one of approved roles.`);
+          }
+        }
+      }
+    }
+
+    // Check if Serial Number already exists in database
+    const existing = serialNumber
+      ? existingProfiles.find((p) => p.serial_number.toLowerCase() === serialNumber.toLowerCase())
+      : undefined;
+
+    let status: 'new' | 'update' | 'error' = 'new';
+    let errorMessage: string | undefined = undefined;
+
+    if (rowErrors.length > 0) {
+      status = 'error';
+      errorMessage = rowErrors.join(' ');
+      errorCount++;
+      errors.push(`Row ${rowNum}: ${errorMessage}`);
+    } else if (existing) {
+      status = 'update';
+      updateCount++;
+    } else {
+      status = 'new';
+      newCount++;
+    }
+
+    rows.push({
+      rowNumber: rowNum,
+      serialNumber,
+      fullName,
+      department,
+      area,
+      region,
+      duty,
+      section,
+      ban,
+      teamLeader,
+      roles: parsedRoles,
+      status,
+      errorMessage,
+      existingProfile: existing,
+    });
+  }
+
+  return {
+    rows,
+    newCount,
+    updateCount,
+    errorCount,
+    errors,
+  };
+}

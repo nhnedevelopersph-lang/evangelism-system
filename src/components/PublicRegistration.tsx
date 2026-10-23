@@ -59,7 +59,9 @@ export const PublicRegistration: React.FC<PublicRegistrationProps> = ({
   // Look up referrer profile whenever refCode changes
   useEffect(() => {
     if (refCode.trim()) {
-      const match = appStore.getProfileBySerialNumber(refCode.trim());
+      const match =
+        appStore.getProfileByReferralCode(refCode.trim()) ||
+        appStore.getProfileBySerialNumber(refCode.trim());
       setReferrerProfile(match || null);
     } else {
       setReferrerProfile(null);
@@ -78,8 +80,8 @@ export const PublicRegistration: React.FC<PublicRegistrationProps> = ({
       setErrorMessage('Please provide a valid contact number so we can get in touch.');
       return;
     }
-    if (!province.trim()) {
-      setErrorMessage('Please select your province or region.');
+    if (!city.trim()) {
+      setErrorMessage('Please enter your city or municipality.');
       return;
     }
 
@@ -93,7 +95,7 @@ export const PublicRegistration: React.FC<PublicRegistrationProps> = ({
         email: email.trim() || undefined,
         gender,
         province: province.trim(),
-        city: city.trim() || undefined,
+        city: city.trim(),
         ref_code: refCode.trim() || undefined,
       });
 
@@ -221,12 +223,12 @@ export const PublicRegistration: React.FC<PublicRegistrationProps> = ({
                   <span className="text-slate-500">Location:</span>{' '}
                   <strong>{city ? `${city}, ` : ''}{province}</strong>
                 </p>
-                <p>
+                {/*<p>
                   <span className="text-slate-500">Initial Level:</span>{' '}
                   <span className="bg-amber-100 text-amber-800 text-xs px-2 py-0.5 rounded font-bold">
                     Chatgi (Registered)
                   </span>
-                </p>
+                </p>*/}
               </div>
             </div>
 

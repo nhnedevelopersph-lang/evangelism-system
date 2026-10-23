@@ -233,6 +233,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   ];
 
   const isAdmin = currentUser.role.includes('Super Admin') || currentUser.role.includes('Admin');
+  const canManageAccounts = appStore.canManageAccounts(currentUser);
 
   return (
     <div className="space-y-6">
@@ -265,7 +266,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
 
           {/* Action Tools */}
           <div className="flex flex-wrap items-center gap-2.5">
-            {isAdmin && onOpenCsvImport && (
+            {canManageAccounts && onOpenCsvImport && (
               <button
                 onClick={onOpenCsvImport}
                 className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs rounded-xl shadow-xs transition-colors"
