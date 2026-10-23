@@ -1,0 +1,6 @@
+{
+  "name": "Zion Christian Mission Center - Bible Study & Student Management",
+  "description": "Student management system, evangelism referral tracking, role-based pipeline, and BB lesson tracking for Zion Christian Mission Center Free Bible Study.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
