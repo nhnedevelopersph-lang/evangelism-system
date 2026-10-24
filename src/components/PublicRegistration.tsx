@@ -232,6 +232,22 @@ export const PublicRegistration: React.FC<PublicRegistrationProps> = ({
               </div>
             </div>
 
+            {/* Heartfelt Scripture Verse */}
+            <div className="bg-gradient-to-br from-amber-50/90 via-sky-50/50 to-blue-50/80 border border-amber-200/90 rounded-2xl p-5 mb-8 text-center max-w-md mx-auto shadow-xs">
+              <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mx-auto mb-2.5 shadow-2xs">
+                <BookOpen className="w-4 h-4 text-amber-700" />
+              </div>
+              <blockquote className="text-xs sm:text-sm font-serif italic text-slate-800 leading-relaxed">
+                “Ask and it will be given to you; seek and you will find; knock and the door will be opened to you. For everyone who asks receives; the one who seeks finds; and to the one who knocks, the door will be opened.”
+              </blockquote>
+              <p className="text-[11px] font-bold text-amber-900 mt-2 tracking-wide uppercase not-italic">
+                — Matthew 7:7-8
+              </p>
+              <div className="mt-3 pt-2.5 border-t border-amber-200/70 text-[11px] text-slate-600 font-serif italic">
+                “Then you will know the truth, and the truth will set you free.” (John 8:32)
+              </div>
+            </div>
+
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button
                 onClick={handleResetForm}

@@ -44,12 +44,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
   const [copiedLink, setCopiedLink] = useState(false);
   const [sharedToast, setSharedToast] = useState(false);
 
-  // Compute live timestamp
+  // Compute live timestamp including timezone
   const updateTimestamp = () => {
     const now = new Date();
-    const timeStr = now.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit', hour12: true });
-    const dateStr = now.toLocaleDateString([], { month: 'long', day: 'numeric', year: 'numeric' });
-    setAsOfTimestamp(`${dateStr} • As of ${timeStr}`);
+    const timeStr = now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+    const dateStr = now.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    setAsOfTimestamp(`Data as of ${dateStr}, ${timeStr} (Asia/Manila)`);
   };
 
   useEffect(() => {
@@ -218,7 +218,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       level: 'Center Hapdang',
       count: summary.center_hapdang,
       label: 'Center Hapdang',
-      sub: '9+ Lessons & Form',
+      sub: '10+ Lessons & Form',
       color: 'bg-emerald-500/10 text-emerald-800 border-emerald-300 hover:border-emerald-400',
       badgeColor: 'bg-emerald-600 text-white',
     },
@@ -535,7 +535,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-100 font-medium">
-                  {myReferredProspects.slice(0, 5).map((p) => (
+                  {myReferredProspects.slice(0, 5).map((p: Prospect) => (
                     <tr key={p.id} className="hover:bg-slate-50 transition-colors">
                       <td className="py-2.5 font-bold text-slate-900">{p.name}</td>
                       <td className="py-2.5">

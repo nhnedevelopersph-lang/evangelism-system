@@ -19,6 +19,9 @@ export const UpgradeToTtagiModal: React.FC<UpgradeToTtagiModalProps> = ({
   const [meetingRemarks, setMeetingRemarks] = useState(
     prospect.meeting_remarks || 'Finished introductory meeting with BB Teacher. Ready to commence foundational lessons.'
   );
+  const [meetingMode, setMeetingMode] = useState<'Online' | 'Onsite'>(
+    prospect.meeting_mode || (prospect.program === 'Onsite' ? 'Onsite' : 'Online')
+  );
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('18:00');
   const [assignedBBTeacherId, setAssignedBBTeacherId] = useState(
@@ -52,7 +55,8 @@ export const UpgradeToTtagiModal: React.FC<UpgradeToTtagiModalProps> = ({
       prospect.id,
       meetingRemarks.trim(),
       fullSchedule,
-      assignedBBTeacherId
+      assignedBBTeacherId,
+      meetingMode
     );
 
     if (res.success) {
@@ -153,6 +157,50 @@ export const UpgradeToTtagiModal: React.FC<UpgradeToTtagiModalProps> = ({
                   className="w-full pl-9 pr-3 py-2 bg-slate-50 border border-slate-300 rounded-xl text-xs sm:text-sm font-medium focus:bg-white focus:border-purple-600 focus:ring-2 focus:ring-purple-100"
                 />
               </div>
+            </div>
+          </div>
+
+          {/* Meeting Mode */}
+          <div>
+            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">
+              Meeting Mode <span className="text-rose-500">*</span>
+            </label>
+            <div className="grid grid-cols-2 gap-3">
+              <label
+                className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
+                  meetingMode === 'Online'
+                    ? 'bg-purple-50 border-purple-400 text-purple-900 shadow-xs'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="ttagi_mode"
+                  value="Online"
+                  checked={meetingMode === 'Online'}
+                  onChange={() => setMeetingMode('Online')}
+                  className="sr-only"
+                />
+                <span>Online (Zoom/Meet)</span>
+              </label>
+
+              <label
+                className={`flex items-center justify-center gap-2 p-2.5 rounded-xl border cursor-pointer text-xs font-bold transition-all ${
+                  meetingMode === 'Onsite'
+                    ? 'bg-purple-50 border-purple-400 text-purple-900 shadow-xs'
+                    : 'bg-slate-50 border-slate-200 text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                <input
+                  type="radio"
+                  name="ttagi_mode"
+                  value="Onsite"
+                  checked={meetingMode === 'Onsite'}
+                  onChange={() => setMeetingMode('Onsite')}
+                  className="sr-only"
+                />
+                <span>Onsite (In-Person)</span>
+              </label>
             </div>
           </div>
 

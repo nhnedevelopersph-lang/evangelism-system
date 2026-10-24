@@ -12,8 +12,9 @@ import {
   AUTHORIZED_REGISTRATION_ROLES,
   ALL_APPROVED_ROLES,
   AccountCsvRow,
+  StatusHistoryLog,
 } from '../types';
-import { SEED_PROFILES, SEED_PROSPECTS, SEED_BB_LESSONS } from '../data/constants';
+import { SEED_PROFILES, SEED_PROSPECTS, SEED_BB_LESSONS, DROPPING_REASONS } from '../data/constants';
 import { generateNextAreaReferralCode } from '../utils/areaCodeGenerator';
 import {
   supabase,
@@ -36,6 +37,7 @@ const STORAGE_KEYS = {
   FOLLOW_UPS: 'zcmc_follow_ups_v2',
   MEMBER_IMPORTS: 'zcmc_member_imports_v2',
   CREDENTIALS: 'zcmc_auth_credentials_v2',
+  STATUS_HISTORY: 'zcmc_status_history_v2',
 };
 
 export interface UserCredential {
@@ -95,6 +97,7 @@ export class Store {
   private followUps: FollowUpLog[] = [];
   private memberImports: MemberImportBatch[] = [];
   private credentials: Record<string, UserCredential> = {};
+  private statusHistory: StatusHistoryLog[] = [];
   private currentUser: Profile | null = null;
   private listeners: Array<() => void> = [];
 
@@ -116,8 +119,9 @@ export class Store {
     this.followUps = getStored<FollowUpLog[]>(STORAGE_KEYS.FOLLOW_UPS, []);
     this.memberImports = getStored<MemberImportBatch[]>(STORAGE_KEYS.MEMBER_IMPORTS, []);
     this.credentials = getStored<Record<string, UserCredential>>(STORAGE_KEYS.CREDENTIALS, {});
+    this.statusHistory = getStored<StatusHistoryLog[]>(STORAGE_KEYS.STATUS_HISTORY, []);
 
-    // Seed default credentials (including developer testing credentials: useradmin / useradmin43)
+    // Seed default credentials (including developer testing credentials and all serial numbers)
     this.seedCredentials();
 
     // Set initial user if none
@@ -165,30 +169,40 @@ export class Store {
       changed = true;
     }
 
-    const seedMap: Record<string, { pass: string; id: string }> = {
-      'admin': { pass: 'admin123', id: 'u-super-01' },
-      'peter.kim': { pass: 'default123', id: 'u-super-01' },
-      'hannah.morales': { pass: 'default123', id: 'u-reg-01' },
-      'david.park': { pass: 'default123', id: 'u-area-01' },
-      'grace.tan': { pass: 'default123', id: 'u-areasomu-01' },
-      'mark.santos': { pass: 'default123', id: 'u-gwajang-01' },
-      'samuel.cruz': { pass: 'default123', id: 'u-banjang-01' },
-      'esther.lim': { pass: 'default123', id: 'u-bbgyogwan-01' },
-      'joshua.reyes': { pass: 'default123', id: 'u-depttjn-01' },
-      'maria.fernandez': { pass: 'default123', id: 'u-sec-01' },
-      'juan.delacruz': { pass: 'default123', id: 'u-mem-01' },
-      'leah.santos': { pass: 'default123', id: 'u-mem-02' },
-      'caleb.rivera': { pass: 'default123', id: 'u-mem-03' },
-    };
+    // Super Admin Serial Number mapping: 00361228-01771
+    if (!this.credentials['00361228-01771']) {
+      this.credentials['00361228-01771'] = {
+        username: '00361228-01771',
+        passwordHash: await hashPassword('useradmin43'),
+        profileId: 'u-super-admin-00361228',
+      };
+      changed = true;
+    }
 
-    for (const [uname, info] of Object.entries(seedMap)) {
-      if (!this.credentials[uname]) {
-        this.credentials[uname] = {
-          username: uname,
-          passwordHash: await hashPassword(info.pass),
-          profileId: info.id,
+    const defaultSeedHash = await hashPassword('dobetter123');
+
+    // Seed each profile's unique Serial Number as primary username
+    for (const p of this.profiles) {
+      const serialKey = p.serial_number.toLowerCase().trim();
+      if (!this.credentials[serialKey]) {
+        this.credentials[serialKey] = {
+          username: serialKey,
+          passwordHash: defaultSeedHash,
+          profileId: p.id,
         };
         changed = true;
+      }
+
+      if (p.username) {
+        const userKey = p.username.toLowerCase().trim();
+        if (!this.credentials[userKey]) {
+          this.credentials[userKey] = {
+            username: userKey,
+            passwordHash: defaultSeedHash,
+            profileId: p.id,
+          };
+          changed = true;
+        }
       }
     }
 
@@ -237,6 +251,7 @@ export class Store {
     setStored(STORAGE_KEYS.FOLLOW_UPS, this.followUps);
     setStored(STORAGE_KEYS.MEMBER_IMPORTS, this.memberImports);
     setStored(STORAGE_KEYS.CREDENTIALS, this.credentials);
+    setStored(STORAGE_KEYS.STATUS_HISTORY, this.statusHistory);
     if (this.currentUser) {
       setStored(STORAGE_KEYS.CURRENT_USER, this.currentUser);
     }
@@ -276,6 +291,8 @@ export class Store {
   public getBBTeachers(): Profile[] {
     return this.profiles.filter(
       (p) =>
+        Boolean(p.has_bb_teacher_permission) ||
+        p.role.includes('BB Teacher' as UserRole) ||
         p.role.includes('BB Gyo-gwan') ||
         p.role.includes('Super Admin') ||
         p.role.includes('Admin') ||
@@ -309,49 +326,135 @@ export class Store {
   }
 
   /**
-   * Explicit credential-based authentication.
-   * Requires user to manually enter both username and password.
-   * Never infers or pre-fills username from serial_number or referral_code.
+   * Explicit credential-based authentication using Serial Number (or username).
    * Validates strictly against stored credential hashes.
+   * If a user is on initial default password, accepts 'dobetter123' and prompts first-login change.
    */
   public async login(
     usernameAttempt: string,
     passwordAttempt: string
   ): Promise<{ success: boolean; message?: string; user?: Profile }> {
-    const cleanUsername = (usernameAttempt || '').trim().toLowerCase();
+    const cleanInput = (usernameAttempt || '').trim().toLowerCase();
     const cleanPassword = passwordAttempt || '';
 
-    if (!cleanUsername || !cleanPassword) {
-      return { success: false, message: 'Invalid username or password.' };
+    if (!cleanInput || !cleanPassword) {
+      return { success: false, message: 'Invalid Serial Number or password.' };
     }
 
-    // Explicitly validate username against credentials store
-    let cred = this.credentials[cleanUsername];
+    // Resolve profile by Serial Number or username
+    let profile = this.profiles.find(
+      (p) =>
+        p.serial_number.toLowerCase().trim() === cleanInput ||
+        (p.username && p.username.toLowerCase().trim() === cleanInput)
+    );
+
+    // Look for credential under cleanInput, or profile's serial_number, or profile's username
+    let cred = this.credentials[cleanInput];
+    if (!cred && profile) {
+      cred =
+        this.credentials[profile.serial_number.toLowerCase().trim()] ||
+        (profile.username ? this.credentials[profile.username.toLowerCase().trim()] : undefined);
+    }
+
     if (!cred) {
       await this.seedCredentials();
-      cred = this.credentials[cleanUsername];
-    }
-
-    if (!cred) {
-      return { success: false, message: 'Invalid username or password.' };
+      cred = this.credentials[cleanInput];
+      if (!cred && profile) {
+        cred =
+          this.credentials[profile.serial_number.toLowerCase().trim()] ||
+          (profile.username ? this.credentials[profile.username.toLowerCase().trim()] : undefined);
+      }
     }
 
     const attemptHash = await hashPassword(cleanPassword);
-    if (attemptHash !== cred.passwordHash) {
-      return { success: false, message: 'Invalid username or password.' };
+
+    // Check if this user is a member on initial default temporary password 'dobetter123'
+    if (profile && profile.must_change_password) {
+      const defaultHash = await hashPassword('dobetter123');
+      if (attemptHash === defaultHash) {
+        this.setCurrentUser(profile);
+        return { success: true, user: profile };
+      }
     }
 
-    // Authenticated -> load corresponding Profile
-    const profile = this.profiles.find((p) => p.id === cred.profileId);
-    if (!profile) {
-      return { success: false, message: 'Invalid username or password.' };
+    // Validate against stored credential hash
+    if (cred && attemptHash === cred.passwordHash) {
+      const liveProfile = profile || this.profiles.find((p) => p.id === cred!.profileId);
+      if (liveProfile) {
+        this.setCurrentUser(liveProfile);
+        return { success: true, user: liveProfile };
+      }
     }
 
-    this.setCurrentUser(profile);
-    return { success: true, user: profile };
+    return { success: false, message: 'Invalid Serial Number or password.' };
   }
 
   public loginWithCredentials = this.login.bind(this);
+
+  /**
+   * Forgot / Reset Password Workflow with verification against registered record
+   */
+  public async resetPasswordWithVerification(
+    serialNumber: string,
+    contactVerification: string,
+    newPassword: string
+  ): Promise<{ success: boolean; message?: string }> {
+    const cleanSerial = serialNumber.trim().toLowerCase();
+    const cleanContact = contactVerification.trim().toLowerCase().replace(/\D/g, '');
+
+    const profile = this.profiles.find(
+      (p) =>
+        p.serial_number.toLowerCase().trim() === cleanSerial ||
+        (p.username && p.username.toLowerCase().trim() === cleanSerial)
+    );
+
+    if (!profile) {
+      return { success: false, message: 'No member found matching this Serial Number.' };
+    }
+
+    // Verify contact (phone or email)
+    const phoneNorm = (profile.phone || '').replace(/\D/g, '');
+    const emailNorm = (profile.email || '').toLowerCase().trim();
+    const contactInputRaw = contactVerification.trim().toLowerCase();
+
+    const matchesPhone = phoneNorm.length > 5 && phoneNorm.includes(cleanContact);
+    const matchesEmail = emailNorm.length > 3 && emailNorm === contactInputRaw;
+
+    if (!matchesPhone && !matchesEmail) {
+      return {
+        success: false,
+        message: 'Verification failed: Contact number or email does not match our records for this Serial Number.',
+      };
+    }
+
+    if (newPassword.length < 6) {
+      return { success: false, message: 'New password must be at least 6 characters long.' };
+    }
+
+    const newHash = await hashPassword(newPassword);
+    const key = (profile.username || profile.serial_number).toLowerCase().trim();
+    this.credentials[key] = {
+      username: key,
+      passwordHash: newHash,
+      profileId: profile.id,
+    };
+    this.credentials[profile.serial_number.toLowerCase().trim()] = this.credentials[key];
+
+    // Remove must_change_password
+    const idx = this.profiles.findIndex((p) => p.id === profile.id);
+    if (idx !== -1) {
+      this.profiles[idx] = {
+        ...this.profiles[idx],
+        must_change_password: false,
+      };
+    }
+
+    setStored(STORAGE_KEYS.CREDENTIALS, this.credentials);
+    setStored(STORAGE_KEYS.PROFILES, this.profiles);
+    this.notify();
+
+    return { success: true, message: 'Password has been successfully reset! You can now log in.' };
+  }
 
   public logout(): void {
     this.currentUser = null;
@@ -421,7 +524,7 @@ export class Store {
    * Internal Account Registration
    * - Restricted to Super Admin, Admin, Regional Leader, Area Leader, Area Somu
    * - Serial Number is the generated username
-   * - Default password: 'default43' (hashed via hashPassword)
+   * - Default password: 'dobetter123' (hashed via hashPassword)
    * - must_change_password = true
    * - Validates Serial Number uniqueness (no duplicates)
    * - Validates at least 1 role
@@ -438,6 +541,7 @@ export class Store {
       ban?: string;
       team_leader?: string;
       role: UserRole[];
+      has_bb_teacher_permission?: boolean;
     },
     actor?: Profile | null
   ): Promise<{ success: boolean; profile?: Profile; error?: string }> {
@@ -493,13 +597,15 @@ export class Store {
       ban: (data.ban || '').trim(),
       team_leader: (data.team_leader || '').trim(),
       role: [...data.role],
+      has_bb_teacher_permission: Boolean(data.has_bb_teacher_permission),
+      is_active: true,
       must_change_password: true,
       created_at: new Date().toISOString(),
     };
 
-    // Generate credentials with username = Serial Number and password = default43
+    // Generate credentials with username = Serial Number and password = dobetter123
     const cleanUsername = cleanSerial.toLowerCase();
-    const passwordHash = await hashPassword('default43');
+    const passwordHash = await hashPassword('dobetter123');
     this.credentials[cleanUsername] = {
       username: cleanUsername,
       passwordHash,
@@ -520,10 +626,64 @@ export class Store {
     return { success: true, profile: newProfile };
   }
 
+  public toggleBBTeacherPermission(profileId: string): { success: boolean; message?: string } {
+    if (!this.canManageAccounts()) {
+      return { success: false, message: 'Permission denied: Only authorized administrators can manage BB Teacher permissions.' };
+    }
+    const idx = this.profiles.findIndex((p) => p.id === profileId);
+    if (idx === -1) return { success: false, message: 'Member profile not found.' };
+
+    const current = this.profiles[idx];
+    const newVal = !current.has_bb_teacher_permission;
+    this.profiles[idx] = {
+      ...current,
+      has_bb_teacher_permission: newVal,
+    };
+    setStored(STORAGE_KEYS.PROFILES, this.profiles);
+    this.notify();
+
+    if (IS_SUPABASE_CONFIGURED) {
+      upsertMembersToSupabase([this.profiles[idx]]).catch((err) =>
+        console.error('Failed to sync BB Teacher permission update to Supabase:', err)
+      );
+    }
+
+    return {
+      success: true,
+      message: `BB Teacher permission ${newVal ? 'granted to' : 'revoked from'} ${current.name}.`,
+    };
+  }
+
+  public updateMemberProfile(
+    profileId: string,
+    updates: Partial<Pick<Profile, 'name' | 'department' | 'section' | 'area' | 'region' | 'ban' | 'duty' | 'team_leader' | 'role' | 'has_bb_teacher_permission' | 'is_active'>>
+  ): { success: boolean; message?: string } {
+    if (!this.canManageAccounts()) {
+      return { success: false, message: 'Permission denied: Only authorized administrators can update member accounts.' };
+    }
+    const idx = this.profiles.findIndex((p) => p.id === profileId);
+    if (idx === -1) return { success: false, message: 'Member profile not found.' };
+
+    this.profiles[idx] = {
+      ...this.profiles[idx],
+      ...updates,
+    };
+    setStored(STORAGE_KEYS.PROFILES, this.profiles);
+    this.notify();
+
+    if (IS_SUPABASE_CONFIGURED) {
+      upsertMembersToSupabase([this.profiles[idx]]).catch((err) =>
+        console.error('Failed to sync member profile update to Supabase:', err)
+      );
+    }
+
+    return { success: true, message: 'Member details successfully updated.' };
+  }
+
   /**
    * Bulk Account Registration & Updating through CSV
    * - Restricted to authorized roles
-   * - New accounts: username = Serial Number, default password = 'default43', must_change_password = true
+   * - New accounts: username = Serial Number, default password = 'dobetter123', must_change_password = true
    * - Existing accounts: update member/profile info and roles; do NOT reset password or must_change_password!
    */
   public async bulkImportAccountsAsync(
@@ -553,7 +713,7 @@ export class Store {
     let updatedCount = 0;
     let failedCount = 0;
     const profilesToUpsert: Profile[] = [];
-    const defaultPasswordHash = await hashPassword('default43');
+    const defaultPasswordHash = await hashPassword('dobetter123');
 
     for (const row of rows) {
       if (row.status === 'error' || !row.serialNumber || !row.fullName || row.roles.length === 0) {
@@ -673,14 +833,16 @@ export class Store {
     };
     this.profiles.unshift(newProfile);
 
-    // Register initial credential with clean username and default43
+    // Register initial credential with clean username and dobetter123
     const uname = (newProfile.username || cleanSerial).toLowerCase().trim();
-    hashPassword('default43').then((hash) => {
+    hashPassword('dobetter123').then((hash) => {
       this.credentials[uname] = {
         username: uname,
         passwordHash: hash,
         profileId: newProfile.id,
       };
+      // Also map serial number
+      this.credentials[cleanSerial.toLowerCase()] = this.credentials[uname];
       setStored(STORAGE_KEYS.CREDENTIALS, this.credentials);
     });
 
@@ -957,13 +1119,16 @@ export class Store {
   }
 
   // ---------------------------------------------------------------------------
-  // FILTERING PROSPECTS BY ROLE
+  // FILTERING PROSPECTS AND MEMBERS BY ROLE SCOPE
   // ---------------------------------------------------------------------------
-  public getVisibleProspects(startDate?: Date | null, endDate?: Date | null): Prospect[] {
+  public getVisibleProspects(startDate?: Date | null, endDate?: Date | null, includeDeleted = false): Prospect[] {
     const user = this.currentUser;
     if (!user) return [];
 
     let list = this.prospects;
+    if (!includeDeleted) {
+      list = list.filter((p) => !p.is_deleted);
+    }
 
     if (startDate) {
       const startMs = startDate.getTime();
@@ -981,7 +1146,9 @@ export class Store {
     if (user.role.includes('Regional Leader')) {
       return list.filter((p) => {
         const ref = this.getProfileById(p.referred_by_member_id);
-        return ref && ref.region === user.region;
+        const inRegion = ref && ref.region === user.region;
+        const isAssigned = p.assigned_bb_teacher_id === user.id;
+        return inRegion || isAssigned;
       });
     }
 
@@ -991,7 +1158,7 @@ export class Store {
     if (isAreaLevelRole) {
       return list.filter((p) => {
         const ref = this.getProfileById(p.referred_by_member_id);
-        const isRefArea = ref && ref.area === user.area;
+        const isRefArea = ref && (ref.area === user.area || ref.region === user.region);
         const isAssignedTeacher = p.assigned_bb_teacher_id === user.id;
         return isRefArea || isAssignedTeacher;
       });
@@ -1000,35 +1167,76 @@ export class Store {
     if (user.role.includes('Banjang')) {
       return list.filter((p) => {
         const ref = this.getProfileById(p.referred_by_member_id);
-        return ref && ref.ban === user.ban && ref.area === user.area;
+        const isBan = ref && ref.ban === user.ban && ref.area === user.area;
+        const isAssignedTeacher = p.assigned_bb_teacher_id === user.id;
+        return isBan || isAssignedTeacher;
       });
     }
 
     if (user.role.includes('Department TJN')) {
       return list.filter((p) => {
         const ref = this.getProfileById(p.referred_by_member_id);
-        return ref && ref.department === user.department;
+        const isDept = ref && ref.department === user.department;
+        const isAssignedTeacher = p.assigned_bb_teacher_id === user.id;
+        return isDept || isAssignedTeacher;
       });
     }
 
     if (user.role.includes('Section Leader')) {
       return list.filter((p) => {
         const ref = this.getProfileById(p.referred_by_member_id);
-        return ref && ref.section === user.section && ref.area === user.area;
+        const isSec = ref && ref.section === user.section && ref.area === user.area;
+        const isAssignedTeacher = p.assigned_bb_teacher_id === user.id;
+        return isSec || isAssignedTeacher;
       });
     }
 
-    if (user.role.includes('Member')) {
-      return list.filter(
-        (p) => p.referred_by_member_id === user.id || p.assigned_bb_teacher_id === user.id
-      );
+    // Member: attributed personal referrals or assigned students
+    return list.filter(
+      (p) => p.referred_by_member_id === user.id || p.assigned_bb_teacher_id === user.id
+    );
+  }
+
+  /**
+   * Scope-filtered members list respecting role jurisdictions
+   */
+  public getVisibleMembers(): Profile[] {
+    const user = this.currentUser;
+    if (!user) return [];
+
+    if (this.isSuperAdminOrAdmin()) {
+      return [...this.profiles];
     }
 
-    return list.filter((p) => p.referred_by_member_id === user.id);
+    if (user.role.includes('Regional Leader')) {
+      return this.profiles.filter((p) => p.region === user.region);
+    }
+
+    const isAreaLevelRole = user.role.some((r) =>
+      ['Area Leader', 'Area Somu', 'Gwajang', 'Somu', 'Jeondo Gyo-gwan', 'BB Gyo-gwan'].includes(r)
+    );
+    if (isAreaLevelRole) {
+      return this.profiles.filter((p) => p.area === user.area || p.region === user.region);
+    }
+
+    if (user.role.includes('Banjang')) {
+      return this.profiles.filter((p) => p.ban === user.ban && p.area === user.area);
+    }
+
+    if (user.role.includes('Department TJN')) {
+      return this.profiles.filter((p) => p.department === user.department);
+    }
+
+    if (user.role.includes('Section Leader')) {
+      return this.profiles.filter((p) => p.section === user.section && p.area === user.area);
+    }
+
+    // Member: only self
+    return this.profiles.filter((p) => p.id === user.id);
   }
 
   public getProspectsReferredBy(memberId: string): Prospect[] {
-    return this.prospects.filter((p) => p.referred_by_member_id === memberId);
+    return this.prospects.filter((p) => p.referred_by_member_id === memberId && !p.is_deleted);
   }
 
   public getPipelineSummary(startDate?: Date | null, endDate?: Date | null): PipelineSummary {
@@ -1047,6 +1255,58 @@ export class Store {
     };
 
     visible.forEach((p) => {
+      switch (p.prospect_level) {
+        case 'Chatgi':
+          counts.chatgi++;
+          break;
+        case 'BB Hapdang':
+          counts.bb_hapdang++;
+          break;
+        case 'Ttagi':
+          counts.ttagi++;
+          break;
+        case 'Soebweh':
+          counts.soebweh++;
+          break;
+        case 'BB':
+          counts.bb++;
+          break;
+        case 'Center Hapdang':
+          counts.center_hapdang++;
+          break;
+        case 'Center':
+          counts.center++;
+          break;
+        case 'BB Dropped':
+          counts.bb_dropped++;
+          break;
+      }
+    });
+
+    return counts;
+  }
+
+  /**
+   * Calculate referral counts across all 7 stages + Dropped for a specific member
+   */
+  public getMemberReferralCounts(memberId: string): PipelineSummary {
+    const referred = this.prospects.filter(
+      (p) => p.referred_by_member_id === memberId && !p.is_deleted
+    );
+
+    const counts: PipelineSummary = {
+      chatgi: 0,
+      bb_hapdang: 0,
+      ttagi: 0,
+      soebweh: 0,
+      bb: 0,
+      center_hapdang: 0,
+      center: 0,
+      bb_dropped: 0,
+      total: referred.length,
+    };
+
+    referred.forEach((p) => {
       switch (p.prospect_level) {
         case 'Chatgi':
           counts.chatgi++;
@@ -1209,29 +1469,64 @@ export class Store {
   }
 
   // ---------------------------------------------------------------------------
-  // PIPELINE TRANSITIONS
+  // PIPELINE TRANSITIONS & AUDIT HISTORY
   // ---------------------------------------------------------------------------
+  public recordStatusHistory(
+    prospectId: string,
+    fromLevel: ProspectLevel,
+    toLevel: ProspectLevel,
+    remarks?: string
+  ): void {
+    const log: StatusHistoryLog = {
+      id: `sh-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
+      prospect_id: prospectId,
+      from_level: fromLevel,
+      to_level: toLevel,
+      changed_by_id: this.currentUser?.id || 'system',
+      changed_by_name: this.currentUser?.name || 'System / Auto',
+      remarks,
+      timestamp: new Date().toISOString(),
+    };
+    this.statusHistory.unshift(log);
+    setStored(STORAGE_KEYS.STATUS_HISTORY, this.statusHistory);
+  }
+
+  public getStatusHistoryForProspect(prospectId: string): StatusHistoryLog[] {
+    return this.statusHistory.filter((sh) => sh.prospect_id === prospectId);
+  }
+
   public upgradeToBBHapdang(
     prospectId: string,
-    program: ProgramType,
     nextSchedule: string,
     meetingRemarks?: string
   ): { success: boolean; message?: string } {
     if (!this.canUpgradeToBBHapdang()) {
-      return { success: false, message: 'Permission denied: Only Section Leaders and above can upgrade to BB Hapdang.' };
+      return {
+        success: false,
+        message: 'Permission denied: Only Section Leaders and above can upgrade a prospect to BB Hapdang.',
+      };
     }
 
     const idx = this.prospects.findIndex((p) => p.id === prospectId);
     if (idx === -1) return { success: false, message: 'Prospect not found.' };
 
+    const previous = this.prospects[idx].prospect_level;
     this.prospects[idx] = {
       ...this.prospects[idx],
       prospect_level: 'BB Hapdang',
-      program,
       next_meeting_schedule: nextSchedule,
       meeting_remarks: meetingRemarks || this.prospects[idx].meeting_remarks,
+      upgraded_by_id: this.currentUser?.id,
+      upgraded_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+
+    this.recordStatusHistory(
+      prospectId,
+      previous,
+      'BB Hapdang',
+      `Upgraded to BB Hapdang by ${this.currentUser?.name || 'Authorized Leader'}.`
+    );
 
     this.notify();
     return { success: true };
@@ -1241,23 +1536,50 @@ export class Store {
     prospectId: string,
     meetingRemarks: string,
     nextMeetingSchedule: string,
-    assignedBBTeacherId: string
+    assignedBBTeacherId: string,
+    meetingMode?: 'Online' | 'Onsite'
   ): { success: boolean; message?: string } {
     if (!this.canUpgradeToTtagi()) {
-      return { success: false, message: 'Permission denied: Section Leaders and Members cannot upgrade directly to Ttagi.' };
+      return {
+        success: false,
+        message: 'Permission denied: Section Leaders and Members cannot upgrade directly to Ttagi.',
+      };
+    }
+
+    if (!meetingRemarks.trim()) {
+      return { success: false, message: 'Meeting remarks from introductory study are required.' };
+    }
+    if (!nextMeetingSchedule) {
+      return { success: false, message: 'Next meeting date and time is required.' };
+    }
+    if (!assignedBBTeacherId) {
+      return { success: false, message: 'An assigned BB Teacher is required.' };
     }
 
     const idx = this.prospects.findIndex((p) => p.id === prospectId);
     if (idx === -1) return { success: false, message: 'Prospect not found.' };
 
+    const previous = this.prospects[idx].prospect_level;
+    const teacher = this.getProfileById(assignedBBTeacherId);
+
     this.prospects[idx] = {
       ...this.prospects[idx],
       prospect_level: 'Ttagi',
-      meeting_remarks: meetingRemarks,
+      meeting_remarks: meetingRemarks.trim(),
       next_meeting_schedule: nextMeetingSchedule,
+      meeting_mode: meetingMode || 'Online',
       assigned_bb_teacher_id: assignedBBTeacherId,
+      upgraded_by_id: this.currentUser?.id,
+      upgraded_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
     };
+
+    this.recordStatusHistory(
+      prospectId,
+      previous,
+      'Ttagi',
+      `Upgraded to Ttagi by ${this.currentUser?.name}. Teacher: ${teacher ? teacher.name : assignedBBTeacherId}. Mode: ${meetingMode || 'Online'}.`
+    );
 
     this.notify();
     return { success: true };
@@ -1273,31 +1595,76 @@ export class Store {
     prospectId: string,
     lessonTitle: string,
     dateCompleted: string,
-    notes?: string
+    notesOrOptions?:
+      | string
+      | {
+          mode?: 'Online' | 'Onsite';
+          method?: '1-on-1' | 'Group';
+          notes?: string;
+          assignedTeacherId?: string;
+        }
   ): { success: boolean; message?: string } {
     const prospect = this.prospects.find((p) => p.id === prospectId);
-    if (!prospect) return { success: false, message: 'Prospect not found.' };
+    if (!prospect) return { success: false, message: 'Student record not found.' };
 
     if (!this.canUpdateLesson(prospect)) {
       return {
         success: false,
-        message: 'Permission denied: Only the Assigned BB Teacher (or Admin) can update lessons for this student.',
+        message: 'Permission denied: Only the Assigned BB Teacher (or Super Admin) can add or edit lessons for this student.',
       };
     }
+
+    const cleanTitle = (lessonTitle || '').trim();
+    if (!cleanTitle) {
+      return { success: false, message: 'Lesson title is required.' };
+    }
+    if (!dateCompleted) {
+      return { success: false, message: 'Completion date is required.' };
+    }
+
+    // Duplicate Prevention: Check if this lesson title has already been recorded for this student
+    const existing = this.bbLessons.find(
+      (l) =>
+        l.prospect_id === prospectId &&
+        l.lesson_title.toLowerCase().trim() === cleanTitle.toLowerCase()
+    );
+    if (existing) {
+      return {
+        success: false,
+        message: `Lesson "${cleanTitle}" has already been completed and recorded for this student.`,
+      };
+    }
+
+    const options = typeof notesOrOptions === 'string' ? { notes: notesOrOptions } : notesOrOptions;
+    const assignedTeacher = options?.assignedTeacherId || prospect.assigned_bb_teacher_id || this.currentUser?.id;
 
     const newLesson: BBLesson = {
       id: `l-${Date.now()}-${Math.random().toString(36).substr(2, 5)}`,
       prospect_id: prospectId,
-      lesson_title: lessonTitle.trim(),
+      lesson_title: cleanTitle,
       date_completed: dateCompleted,
+      mode: options?.mode || (prospect.program === 'Onsite' ? 'Onsite' : 'Online'),
+      method: options?.method || '1-on-1',
+      assigned_teacher_id: assignedTeacher,
       updated_by: this.currentUser?.id || 'system',
-      notes,
+      notes: options?.notes,
       created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     };
 
     this.bbLessons.push(newLesson);
     this.recalculateProspectLevel(prospectId);
     this.notify();
+
+    if (IS_SUPABASE_CONFIGURED && supabase) {
+      supabase.from('bb_lessons').insert({
+        prospect_id: newLesson.prospect_id,
+        lesson_title: newLesson.lesson_title,
+        date_completed: newLesson.date_completed,
+        updated_by: newLesson.updated_by,
+        notes: newLesson.notes,
+      }).then(() => {});
+    }
 
     return { success: true };
   }
@@ -1319,13 +1686,19 @@ export class Store {
     return true;
   }
 
-  public setCenterRegistrationCompleted(prospectId: string, completed: boolean): boolean {
+  public setCenterRegistrationCompleted(
+    prospectId: string,
+    completed: boolean,
+    verificationInfo?: string
+  ): boolean {
     const idx = this.prospects.findIndex((p) => p.id === prospectId);
     if (idx === -1) return false;
 
     this.prospects[idx] = {
       ...this.prospects[idx],
       center_registration_completed: completed,
+      center_form_completed_at: completed ? new Date().toISOString() : undefined,
+      center_form_verification: verificationInfo || (completed ? 'Form verified' : undefined),
       updated_at: new Date().toISOString(),
     };
 
@@ -1348,7 +1721,8 @@ export class Store {
 
     let newLevel: ProspectLevel = current.prospect_level;
 
-    if (count >= 9 && current.center_registration_completed) {
+    // Center Hapdang requires at least 10 lessons AND verified Center Registration Form completion
+    if (count >= 10 && current.center_registration_completed) {
       newLevel = 'Center Hapdang';
     } else if (count >= 3) {
       newLevel = 'BB';
@@ -1357,43 +1731,94 @@ export class Store {
     }
 
     if (newLevel !== current.prospect_level) {
+      const from = current.prospect_level;
       this.prospects[idx] = {
         ...current,
         prospect_level: newLevel,
         updated_at: new Date().toISOString(),
       };
+      this.recordStatusHistory(
+        prospectId,
+        from,
+        newLevel,
+        `Automatic progression based on lesson milestones (${count} lessons completed${current.center_registration_completed ? ', Form submitted' : ''}).`
+      );
     }
   }
 
-  public approveCenter(prospectId: string): { success: boolean; message?: string } {
+  public approveCenter(
+    prospectId: string,
+    learningMode?: ProgramType,
+    registrationMonth?: string
+  ): { success: boolean; message?: string } {
     if (!this.canApproveCenter()) {
-      return { success: false, message: 'Permission denied: Only the Area Leader (or Super Admin/Admin) can approve students for Center.' };
+      return {
+        success: false,
+        message: 'Permission denied: Only the Area Leader (or Super Admin/Admin) can approve students for Center.',
+      };
     }
 
     const idx = this.prospects.findIndex((p) => p.id === prospectId);
     if (idx === -1) return { success: false, message: 'Prospect not found.' };
 
+    const previous = this.prospects[idx].prospect_level;
+    const now = new Date();
+    const defaultMonth =
+      registrationMonth || now.toLocaleDateString([], { month: 'long', year: 'numeric' });
+
     this.prospects[idx] = {
       ...this.prospects[idx],
       prospect_level: 'Center',
-      updated_at: new Date().toISOString(),
+      program: learningMode || this.prospects[idx].program || 'Onsite',
+      center_registration_month: defaultMonth,
+      center_approved_by: this.currentUser?.id,
+      center_approved_at: now.toISOString(),
+      updated_at: now.toISOString(),
     };
+
+    this.recordStatusHistory(
+      prospectId,
+      previous,
+      'Center',
+      `Approved for Center by Area Leader ${this.currentUser?.name} (${defaultMonth}, ${learningMode || 'Onsite'})`
+    );
 
     this.notify();
     return { success: true };
   }
 
-  public dropProspect(prospectId: string, droppingReason: string, remarks?: string): { success: boolean; message?: string } {
+  public dropProspect(
+    prospectId: string,
+    droppingReason: string,
+    remarks?: string
+  ): { success: boolean; message?: string } {
     const idx = this.prospects.findIndex((p) => p.id === prospectId);
     if (idx === -1) return { success: false, message: 'Prospect not found.' };
 
+    if (!DROPPING_REASONS.includes(droppingReason)) {
+      return { success: false, message: 'Invalid dropping reason selected.' };
+    }
+
+    const current = this.prospects[idx];
+    const previous = current.prospect_level;
+
     this.prospects[idx] = {
-      ...this.prospects[idx],
+      ...current,
+      previous_stage: previous !== 'BB Dropped' ? previous : current.previous_stage || 'Chatgi',
       prospect_level: 'BB Dropped',
       dropping_reason: droppingReason,
-      meeting_remarks: remarks || this.prospects[idx].meeting_remarks,
+      dropped_by_id: this.currentUser?.id,
+      dropped_at: new Date().toISOString(),
+      meeting_remarks: remarks || current.meeting_remarks,
       updated_at: new Date().toISOString(),
     };
+
+    this.recordStatusHistory(
+      prospectId,
+      previous,
+      'BB Dropped',
+      `Marked dropped by ${this.currentUser?.name || 'Leader'}. Reason: ${droppingReason}. Remarks: ${remarks || 'None'}`
+    );
 
     this.notify();
     return { success: true };
@@ -1403,16 +1828,185 @@ export class Store {
     const idx = this.prospects.findIndex((p) => p.id === prospectId);
     if (idx === -1) return false;
 
+    const previous = this.prospects[idx].prospect_level;
+    const restoredStage = this.prospects[idx].previous_stage || targetLevel;
+
     this.prospects[idx] = {
       ...this.prospects[idx],
-      prospect_level: targetLevel,
+      prospect_level: restoredStage,
       dropping_reason: undefined,
       updated_at: new Date().toISOString(),
     };
 
+    this.recordStatusHistory(
+      prospectId,
+      previous,
+      restoredStage,
+      `Restored by ${this.currentUser?.name || 'Leader'} back to active pipeline (${restoredStage}).`
+    );
+
     this.recalculateProspectLevel(prospectId);
     this.notify();
     return true;
+  }
+
+  /**
+   * Soft Delete for Super Admin
+   */
+  public softDeleteProspect(prospectId: string): { success: boolean; message?: string } {
+    if (!this.isSuperAdminOrAdmin()) {
+      return { success: false, message: 'Permission denied: Only Super Admin can soft-delete student records.' };
+    }
+    const idx = this.prospects.findIndex((p) => p.id === prospectId);
+    if (idx === -1) return { success: false, message: 'Student record not found.' };
+
+    this.prospects[idx] = {
+      ...this.prospects[idx],
+      is_deleted: true,
+      deleted_at: new Date().toISOString(),
+      deleted_by: this.currentUser?.id,
+      updated_at: new Date().toISOString(),
+    };
+
+    this.recordStatusHistory(
+      prospectId,
+      this.prospects[idx].prospect_level,
+      this.prospects[idx].prospect_level,
+      `Soft-deleted by Super Admin ${this.currentUser?.name}`
+    );
+
+    this.notify();
+    return { success: true };
+  }
+
+  public restoreDeletedProspect(prospectId: string): { success: boolean; message?: string } {
+    if (!this.isSuperAdminOrAdmin()) {
+      return { success: false, message: 'Permission denied: Only Super Admin can restore deleted records.' };
+    }
+    const idx = this.prospects.findIndex((p) => p.id === prospectId);
+    if (idx === -1) return { success: false, message: 'Student record not found.' };
+
+    this.prospects[idx] = {
+      ...this.prospects[idx],
+      is_deleted: false,
+      deleted_at: undefined,
+      deleted_by: undefined,
+      updated_at: new Date().toISOString(),
+    };
+
+    this.notify();
+    return { success: true };
+  }
+
+  /**
+   * Export authorized student records to CSV
+   */
+  public exportAuthorizedStudentsCsv(startDate?: Date | null, endDate?: Date | null): string {
+    const list = this.getVisibleProspects(startDate, endDate);
+    const headers = [
+      'Student ID',
+      'Full Name',
+      'Contact Number',
+      'Email',
+      'Gender',
+      'Province',
+      'City',
+      'Current Stage',
+      'Program Mode',
+      'Registration Date',
+      'Referring Member (Guide)',
+      'Guide Serial Number',
+      'Guide Area',
+      'Guide Region',
+      'Assigned BB Teacher',
+      'Completed Lessons Count',
+      'Center Reg Form Done',
+      'Center Approval Month',
+      'Dropping Reason',
+      'Meeting Remarks',
+    ];
+
+    const rows = list.map((p) => {
+      const ref = this.getProfileById(p.referred_by_member_id);
+      const teacher = p.assigned_bb_teacher_id ? this.getProfileById(p.assigned_bb_teacher_id) : null;
+      const lessons = this.getLessonsForProspect(p.id);
+
+      return [
+        `"${p.id}"`,
+        `"${p.name.replace(/"/g, '""')}"`,
+        `"${p.contact_number}"`,
+        `"${p.email || ''}"`,
+        `"${p.gender || ''}"`,
+        `"${p.province || ''}"`,
+        `"${p.city || ''}"`,
+        `"${p.prospect_level}"`,
+        `"${p.program || ''}"`,
+        `"${new Date(p.created_at).toISOString()}"`,
+        `"${ref ? ref.name.replace(/"/g, '""') : 'Direct / Unassigned'}"`,
+        `"${ref ? ref.serial_number : ''}"`,
+        `"${ref ? ref.area : ''}"`,
+        `"${ref ? ref.region : ''}"`,
+        `"${teacher ? teacher.name.replace(/"/g, '""') : 'Unassigned'}"`,
+        `"${lessons.length}"`,
+        `"${p.center_registration_completed ? 'Yes' : 'No'}"`,
+        `"${p.center_registration_month || ''}"`,
+        `"${p.dropping_reason || ''}"`,
+        `"${(p.meeting_remarks || '').replace(/"/g, '""')}"`,
+      ].join(',');
+    });
+
+    return [headers.join(','), ...rows].join('\n');
+  }
+
+  /**
+   * Update member roles and permissions (Admin management)
+   */
+  public updateMemberRolesAndPermissions(
+    memberId: string,
+    updates: {
+      role?: UserRole[];
+      has_bb_teacher_permission?: boolean;
+      is_active?: boolean;
+      department?: string;
+      area?: string;
+      region?: string;
+      section?: string;
+      ban?: string;
+      duty?: string;
+    }
+  ): { success: boolean; message?: string } {
+    if (!this.canManageAccounts()) {
+      return {
+        success: false,
+        message: 'Permission denied: Only authorized administrators may update member assignments.',
+      };
+    }
+
+    const idx = this.profiles.findIndex((p) => p.id === memberId);
+    if (idx === -1) return { success: false, message: 'Member not found.' };
+
+    this.profiles[idx] = {
+      ...this.profiles[idx],
+      ...updates,
+      role: updates.role || this.profiles[idx].role,
+      has_bb_teacher_permission:
+        updates.has_bb_teacher_permission !== undefined
+          ? updates.has_bb_teacher_permission
+          : this.profiles[idx].has_bb_teacher_permission,
+      is_active: updates.is_active !== undefined ? updates.is_active : this.profiles[idx].is_active,
+    };
+
+    setStored(STORAGE_KEYS.PROFILES, this.profiles);
+    if (this.currentUser?.id === memberId) {
+      this.currentUser = this.profiles[idx];
+    }
+    this.notify();
+
+    if (IS_SUPABASE_CONFIGURED && supabase) {
+      upsertMembersToSupabase([this.profiles[idx]]).catch(() => {});
+    }
+
+    return { success: true };
   }
 
   public getFollowUpsForProspect(prospectId: string): FollowUpLog[] {
@@ -1441,6 +2035,7 @@ export class Store {
     this.bbLessons = [...SEED_BB_LESSONS];
     this.followUps = [];
     this.memberImports = [];
+    this.statusHistory = [];
     this.currentUser = this.profiles[0];
     this.notify();
   }

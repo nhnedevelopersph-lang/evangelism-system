@@ -39,6 +39,8 @@ export interface Profile {
   team_leader: string;
   ban: string;
   role: UserRole[];
+  has_bb_teacher_permission?: boolean; // Additional permission assignable to any member
+  is_active?: boolean;
   must_change_password: boolean;
   phone?: string;
   email?: string;
@@ -60,10 +62,24 @@ export interface Prospect {
   prospect_level: ProspectLevel;
   program?: ProgramType;
   next_meeting_schedule?: string;
+  meeting_mode?: 'Online' | 'Onsite';
   meeting_remarks?: string;
   assigned_bb_teacher_id?: string; // references Profile.id
+  upgraded_by_id?: string;
+  upgraded_at?: string;
   dropping_reason?: string;
+  previous_stage?: ProspectLevel;
+  dropped_by_id?: string;
+  dropped_at?: string;
   center_registration_completed?: boolean;
+  center_form_completed_at?: string;
+  center_form_verification?: string;
+  center_approved_by?: string;
+  center_approved_at?: string;
+  center_registration_month?: string;
+  is_deleted?: boolean;
+  deleted_at?: string;
+  deleted_by?: string;
   updated_at: string;
 }
 
@@ -72,9 +88,24 @@ export interface BBLesson {
   prospect_id: string;
   lesson_title: string;
   date_completed: string;
+  mode?: 'Online' | 'Onsite';
+  method?: '1-on-1' | 'Group';
+  assigned_teacher_id?: string;
   updated_by: string; // references Profile.id
   notes?: string;
   created_at: string;
+  updated_at?: string;
+}
+
+export interface StatusHistoryLog {
+  id: string;
+  prospect_id: string;
+  from_level: ProspectLevel;
+  to_level: ProspectLevel;
+  changed_by_id: string;
+  changed_by_name: string;
+  remarks?: string;
+  timestamp: string;
 }
 
 export interface FollowUpLog {

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { Prospect, ProgramType } from '../types';
+import { Prospect } from '../types';
 import { appStore } from '../services/store';
-import { Calendar, Clock, Monitor, Building2, BookMarked, X, AlertCircle } from 'lucide-react';
+import { Calendar, Clock, BookMarked, X, AlertCircle } from 'lucide-react';
 
 interface UpgradeToBBHapdangModalProps {
   prospect: Prospect;
@@ -16,7 +16,6 @@ export const UpgradeToBBHapdangModal: React.FC<UpgradeToBBHapdangModalProps> = (
   onClose,
   onSuccess,
 }) => {
-  const [program, setProgram] = useState<ProgramType>('Online');
   const [scheduleDate, setScheduleDate] = useState('');
   const [scheduleTime, setScheduleTime] = useState('19:00');
   const [remarks, setRemarks] = useState(prospect.meeting_remarks || '');
@@ -34,7 +33,7 @@ export const UpgradeToBBHapdangModal: React.FC<UpgradeToBBHapdangModalProps> = (
     }
 
     const fullSchedule = `${scheduleDate}T${scheduleTime || '00:00'}:00Z`;
-    const res = appStore.upgradeToBBHapdang(prospect.id, program, fullSchedule, remarks);
+    const res = appStore.upgradeToBBHapdang(prospect.id, fullSchedule, remarks);
 
     if (res.success) {
       onSuccess();
@@ -81,46 +80,11 @@ export const UpgradeToBBHapdangModal: React.FC<UpgradeToBBHapdangModalProps> = (
         <div className="bg-blue-50/60 border border-blue-100 rounded-2xl p-3.5 mb-5 text-xs text-blue-900 leading-relaxed">
           <p className="font-semibold mb-1">BB Hapdang Requirement (Section Leader & Above):</p>
           <p className="text-blue-800/90">
-            Qualifies the registered student to proceed to BB study. Select which program they will enter and set the schedule for their introductory meeting with a BB Teacher.
+            Qualifies the registered prospect to advance into BB study. Set the date and time for the introductory meeting with the assigned BB Teacher.
           </p>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-4">
-          {/* Program Selection */}
-          <div>
-            <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-2">
-              Program Entering <span className="text-rose-500">*</span>
-            </label>
-            <div className="grid grid-cols-3 gap-2">
-              {[
-                { id: 'Online', label: 'Online', icon: Monitor, desc: 'Zoom / Meet' },
-                { id: 'Onsite', label: 'Onsite', icon: Building2, desc: 'Local Center' },
-                { id: 'SPS', label: 'SPS', icon: BookMarked, desc: 'Special Study' },
-              ].map((item) => {
-                const Icon = item.icon;
-                const isSelected = program === item.id;
-                return (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={() => setProgram(item.id as ProgramType)}
-                    className={`p-3 rounded-xl border text-left transition-all ${
-                      isSelected
-                        ? 'border-blue-600 bg-blue-50/80 ring-2 ring-blue-500/20 shadow-xs'
-                        : 'border-slate-200 hover:border-slate-300 bg-slate-50/50'
-                    }`}
-                  >
-                    <Icon className={`w-4 h-4 mb-1 ${isSelected ? 'text-blue-600' : 'text-slate-500'}`} />
-                    <p className={`text-xs font-bold ${isSelected ? 'text-blue-900' : 'text-slate-800'}`}>
-                      {item.label}
-                    </p>
-                    <p className="text-[10px] text-slate-400">{item.desc}</p>
-                  </button>
-                );
-              })}
-            </div>
-          </div>
-
           {/* Schedule Date & Time */}
           <div>
             <label className="block text-xs font-bold text-slate-700 uppercase tracking-wider mb-1.5">

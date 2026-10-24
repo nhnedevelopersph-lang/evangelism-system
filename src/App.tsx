@@ -212,6 +212,30 @@ export default function App() {
   }
 
   // ---------------------------------------------------------------------------
+  // TIER 1.8: MANDATORY FIRST-LOGIN PASSWORD CHANGE GUARD (Blocking)
+  // ---------------------------------------------------------------------------
+  if (currentUser && currentUser.must_change_password) {
+    return (
+      <div className="min-h-screen bg-gradient-to-b from-slate-900 via-blue-950 to-slate-950 flex flex-col items-center justify-center p-4">
+        <ForcePasswordChangeModal
+          user={currentUser}
+          onPasswordChanged={() => {
+            setCurrentUser(appStore.getCurrentUser());
+          }}
+          onLogout={() => {
+            appStore.logout();
+            setCurrentUser(null);
+            if (typeof window !== 'undefined' && window.history?.pushState) {
+              window.history.pushState(null, '', '/login');
+            }
+            setActiveTab('login');
+          }}
+        />
+      </div>
+    );
+  }
+
+  // ---------------------------------------------------------------------------
   // TIER 2: INTERNAL AUTHENTICATED CHURCH SYSTEM & PIPELINE DASHBOARD
   // ---------------------------------------------------------------------------
   return (
@@ -375,16 +399,6 @@ export default function App() {
       </footer>
 
       {/* MODALS */}
-
-      {/* Force Password Change on First Login */}
-      {currentUser && currentUser.must_change_password && (
-        <ForcePasswordChangeModal
-          user={currentUser}
-          onPasswordChanged={() => {
-            setCurrentUser(appStore.getCurrentUser());
-          }}
-        />
-      )}
 
       {/* Login Modal */}
       <LoginModal

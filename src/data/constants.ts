@@ -215,6 +215,7 @@ export const SEED_PROFILES: Profile[] = [
     team_leader: 'David Park',
     ban: 'Ban 1',
     role: ['BB Gyo-gwan'],
+    has_bb_teacher_permission: true,
     must_change_password: false,
     phone: '+63 917 666 0001',
     email: 'esther.bb@zionmission.org',
@@ -291,6 +292,7 @@ export const SEED_PROFILES: Profile[] = [
     team_leader: 'Maria Fernandez',
     ban: 'Ban 1',
     role: ['Member'],
+    has_bb_teacher_permission: true,
     must_change_password: false,
     phone: '+63 918 902 0002',
     email: 'leah.santos@zionmission.org',
@@ -463,7 +465,7 @@ export const SEED_PROSPECTS: Prospect[] = [
     updated_at: '2026-10-15T11:00:00Z',
   },
 
-  // 6. Center Hapdang (9+ BB lessons + filled Center Registration form)
+  // 6. Center Hapdang (10+ BB lessons + filled Center Registration form)
   {
     id: 'p-10',
     created_at: '2026-09-01T10:00:00Z',

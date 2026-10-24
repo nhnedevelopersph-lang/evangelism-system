@@ -262,7 +262,52 @@ SET
     updated_at = timezone('utc'::text, now());
 
 -- -----------------------------------------------------------------------------
--- 8. SAFE TEST DATA RESET SCRIPT
+-- 8. INCREMENTAL COLUMNS AND AUDIT TRAIL LOGS
 -- -----------------------------------------------------------------------------
+ALTER TABLE public.members ADD COLUMN IF NOT EXISTS has_bb_teacher_permission BOOLEAN DEFAULT false;
+ALTER TABLE public.members ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS has_bb_teacher_permission BOOLEAN DEFAULT false;
+ALTER TABLE public.profiles ADD COLUMN IF NOT EXISTS is_active BOOLEAN DEFAULT true;
+
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS meeting_mode TEXT DEFAULT 'Online';
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS upgraded_by_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS upgraded_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS center_form_completed_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS center_form_verification TEXT;
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS center_approved_by UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS center_approved_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS center_registration_month TEXT;
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS previous_stage TEXT;
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS dropped_by_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS dropped_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS is_deleted BOOLEAN DEFAULT false;
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS deleted_at TIMESTAMP WITH TIME ZONE;
+ALTER TABLE public.prospects ADD COLUMN IF NOT EXISTS deleted_by UUID;
+
+ALTER TABLE public.bb_lessons ADD COLUMN IF NOT EXISTS mode TEXT DEFAULT 'Online';
+ALTER TABLE public.bb_lessons ADD COLUMN IF NOT EXISTS method TEXT DEFAULT '1-on-1';
+ALTER TABLE public.bb_lessons ADD COLUMN IF NOT EXISTS assigned_teacher_id UUID REFERENCES public.profiles(id) ON DELETE SET NULL;
+ALTER TABLE public.bb_lessons ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now());
+
+CREATE TABLE IF NOT EXISTS public.status_history_logs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    prospect_id UUID NOT NULL REFERENCES public.prospects(id) ON DELETE CASCADE,
+    from_stage TEXT,
+    to_stage TEXT NOT NULL,
+    changed_by_id UUID,
+    notes TEXT,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_status_history_prospect_id ON public.status_history_logs(prospect_id);
+ALTER TABLE public.status_history_logs ENABLE ROW LEVEL SECURITY;
+CREATE POLICY "Allow authenticated read status history" ON public.status_history_logs FOR SELECT TO authenticated USING (true);
+CREATE POLICY "Allow authenticated insert status history" ON public.status_history_logs FOR INSERT TO authenticated WITH CHECK (true);
+
+-- -----------------------------------------------------------------------------
+-- 9. SAFE TEST DATA RESET SCRIPT
+-- -----------------------------------------------------------------------------
+-- TRUNCATE TABLE public.status_history_logs CASCADE;
 -- TRUNCATE TABLE public.bb_lessons CASCADE;
 -- TRUNCATE TABLE public.prospects CASCADE;

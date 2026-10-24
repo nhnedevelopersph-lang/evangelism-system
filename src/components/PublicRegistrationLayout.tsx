@@ -294,7 +294,7 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
             </p>
 
             {submittedProspect && (
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 mb-8 text-left max-w-md mx-auto space-y-2 text-xs text-slate-700">
+              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 mb-6 text-left max-w-md mx-auto space-y-2 text-xs text-slate-700">
                 <p className="font-bold text-slate-500 uppercase tracking-wider text-[11px] mb-2">
                   Registration Details
                 </p>
@@ -307,20 +307,24 @@ export const PublicRegistrationLayout: React.FC<PublicRegistrationLayoutProps> =
                 <p>
                   <span className="text-slate-500">Location:</span> <strong>{submittedProspect.location}</strong>
                 </p>
-                {referrerProfile && (
-                  <p>
-                    <span className="text-slate-500">Assigned Guide:</span>{' '}
-                    <strong>{referrerProfile.name} ({referrerProfile.area})</strong>
-                  </p>
-                )}
-                {/*<p>
-                  <span className="text-slate-500">Initial Level:</span>{' '}
-                  <span className="font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded text-[11px]">
-                    Chatgi (New Registered)
-                  </span>
-                </p>*/}
               </div>
             )}
+
+            {/* Heartfelt Scripture Verse */}
+            <div className="bg-gradient-to-br from-amber-50/90 via-sky-50/50 to-blue-50/80 border border-amber-200/90 rounded-2xl p-5 mb-8 text-center max-w-md mx-auto shadow-xs">
+              <div className="w-9 h-9 rounded-full bg-amber-100 text-amber-800 flex items-center justify-center mx-auto mb-2.5 shadow-2xs">
+                <BookOpen className="w-4 h-4 text-amber-700" />
+              </div>
+              <blockquote className="text-xs sm:text-sm font-serif italic text-slate-800 leading-relaxed">
+                “Ask and it will be given to you; seek and you will find; knock and the door will be opened to you. For everyone who asks receives; the one who seeks finds; and to the one who knocks, the door will be opened.”
+              </blockquote>
+              <p className="text-[11px] font-bold text-amber-900 mt-2 tracking-wide uppercase not-italic">
+                — Matthew 7:7-8
+              </p>
+              <div className="mt-3 pt-2.5 border-t border-amber-200/70 text-[11px] text-slate-600 font-serif italic">
+                “Then you will know the truth, and the truth will set you free.” (John 8:32)
+              </div>
+            </div>
 
             <div className="flex flex-col sm:flex-row gap-3 justify-center">
               <button

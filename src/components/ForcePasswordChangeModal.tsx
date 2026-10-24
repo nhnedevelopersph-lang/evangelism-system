@@ -6,11 +6,13 @@ import { Lock, KeyRound, AlertTriangle, CheckCircle2 } from 'lucide-react';
 interface ForcePasswordChangeModalProps {
   user: Profile;
   onPasswordChanged: () => void;
+  onLogout?: () => void;
 }
 
 export const ForcePasswordChangeModal: React.FC<ForcePasswordChangeModalProps> = ({
   user,
   onPasswordChanged,
+  onLogout,
 }) => {
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -24,7 +26,7 @@ export const ForcePasswordChangeModal: React.FC<ForcePasswordChangeModalProps> =
     setError('');
 
     if (!currentPassword) {
-      setError('Please enter your current temporary password.');
+      setError('Please enter your current temporary password (default: dobetter123).');
       return;
     }
     if (newPassword.length < 6) {
@@ -49,7 +51,7 @@ export const ForcePasswordChangeModal: React.FC<ForcePasswordChangeModalProps> =
           onPasswordChanged();
         }, 1200);
       } else {
-        setError(res.message || 'Current password is incorrect.');
+        setError(res.message || 'Current password is incorrect. (If this is your first login, try: dobetter123)');
       }
     } catch (_) {
       setError('Failed to update password.');
@@ -160,6 +162,16 @@ export const ForcePasswordChangeModal: React.FC<ForcePasswordChangeModalProps> =
             >
               {loading ? 'Updating Password...' : 'Update Password & Access System'}
             </button>
+
+            {onLogout && (
+              <button
+                type="button"
+                onClick={onLogout}
+                className="w-full py-2 text-center text-xs font-semibold text-slate-500 hover:text-slate-800 transition-colors"
+              >
+                Sign Out & Return to Login
+              </button>
+            )}
           </form>
         )}
       </div>
